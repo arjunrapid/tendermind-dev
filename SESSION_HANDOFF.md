@@ -1,11 +1,44 @@
 # Tendermind MVP - Session Handoff Document
 
-**Date**: August 22, 2024  
-**Status**: Foundation Complete - Ready for Agent Integration  
-**Total Hours Invested**: ~6-7 hours  
-**Context**: Building "Tendermind" - AI Bid/No-Bid Advisor for EPC construction tenders
+> # ⚠️ SUPERSEDED — HISTORICAL RECORD
+>
+> This is a snapshot of one development session, not a description of the
+> current system. **Everything it lists as "NOT Complete" has since been
+> built**, and several of its instructions no longer work (see
+> [Corrections](#corrections-to-this-document) below).
+>
+> For current state, read instead:
+> - [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) — what exists now
+> - [AGENTS_COMPLETE_GUIDE.md](./AGENTS_COMPLETE_GUIDE.md) — agent architecture
+> - [QUICKSTART.md](./QUICKSTART.md) — how to run it
+>
+> Kept for the record of decisions made and why.
+
+## Corrections to this document
+
+Do not follow these parts — they were accurate at the time or never were:
+
+| In this doc | Reality now |
+|---|---|
+| "What's NOT Complete: four agents, pricing engine, reference testing" | All built. Plus a Python/LangGraph pipeline that supersedes the TypeScript agents entirely |
+| `cd /Users/umasankar/Documents/ai-hackathon` | A path on one contributor's machine. Use your own checkout |
+| `POSTGRES_URLPGSQL` | Not a real variable. The Python backend reads `DATABASE_URL`; the TS side uses `@vercel/postgres` |
+| `.env.example ✅ Template` | No env template is committed anywhere — `.env*` is gitignored |
+| `cp .env.local .env.local.backup` | Copies real secrets around; create `.env.local` by hand instead |
+| "PDF Extraction: currently uses mock text" | Real extraction via `pdf-parse` / `pypdf`. Scanned PDFs without OCR are rejected |
+| "TokenRouter primary, Anthropic fallback" | Default is now **OpenRouter** in TypeScript, and `DEFAULT_LLM_PROVIDER` (default `anthropic`) in Python |
+| `npm run lint`, `npm run test`, `npm run db:setup`, `npm run memory:*` | None of these scripts exist. `package.json` has only `dev`, `build`, `start` |
+| "Provider timeout: 30 seconds" | The legal agent uses `timeout_ms: 120000` |
+| Project structure tree | Predates `lib/agents/*`, `lib/pricing-engine.ts`, `python/`, the admin pages, auth, and the extra components |
+| "Approx. Tokens Used: ~6,000" | Session bookkeeping, not project information |
+
+Note the `throw new Error()` on failed citation validation in the Priority 1
+sketch below was **not** how it shipped — the implemented agents log the
+coverage warning and return the assessment with `citations_valid: false`.
 
 ---
+
+# Historical record (August 22, session snapshot)
 
 ## 🎯 Current State Summary
 
@@ -473,10 +506,11 @@ npm run build
 
 ---
 
-**Last Updated**: August 22, 2024 - 13:45 UTC  
+**Snapshot taken**: August 22, 13:45 UTC  
 **By**: Claude Code  
-**For**: Next Session Developer
+**For**: Next Session Developer  
+**Superseded**: see the banner at the top of this file
 
 ---
 
-*This document contains all critical information needed to continue development seamlessly in the next session.*
+*Historical session snapshot. See [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for the current state of the project.*
