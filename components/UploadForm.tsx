@@ -6,22 +6,66 @@ interface UploadFormProps {
   onUploadSuccess: (data: {
     fileName: string;
     extractedText: string;
+    file: File;
   }) => void;
-  onLoading?: (loading: boolean) => void;
+  onUploadStart?: (file: File) => void;
+  onUploadProgress?: (percent: number) => void;
+  disabled?: boolean;
+}
+
+/** Uploads via XHR (not fetch) so real upload-progress events are available
+ * to drive the progress bar - fetch has no upload progress API. */
+function uploadWithProgress(
+  file: File,
+  onProgress: (percent: number) => void,
+): Promise<{ fileName: string; extractedText: string }> {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload');
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        onProgress(Math.round((event.loaded / event.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error('Failed to parse upload response'));
+        }
+      } else {
+        reject(new Error('Failed to upload file'));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Failed to upload file'));
+
+    xhr.send(formData);
+  });
 }
 
 export default function UploadForm({
   onUploadSuccess,
-  onLoading,
+  onUploadStart,
+  onUploadProgress,
+  disabled = false,
 }: UploadFormProps) {
   const [isDragging, setIsDragging] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const isBusy = isUploading || disabled;
+
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragging(true);
+    if (!isBusy) setIsDragging(true);
   };
 
   const handleDragLeave = () => {
@@ -30,37 +74,26 @@ export default function UploadForm({
 
   const processFile = async (file: File) => {
     setError(null);
-    setIsLoading(true);
-    onLoading?.(true);
+    setIsUploading(true);
+    onUploadStart?.(file);
+    onUploadProgress?.(0);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to upload file');
-      }
-
-      const data = await response.json();
-      onUploadSuccess(data);
+      const data = await uploadWithProgress(file, (percent) => onUploadProgress?.(percent));
+      onUploadSuccess({ ...data, file });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'An error occurred during upload',
       );
     } finally {
-      setIsLoading(false);
-      onLoading?.(false);
+      setIsUploading(false);
     }
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
+    if (isBusy) return;
 
     const files = e.dataTransfer.files;
     if (files.length > 0) {
@@ -73,6 +106,8 @@ export default function UploadForm({
     if (files && files.length > 0) {
       processFile(files[0]);
     }
+    // Reset so selecting the same file again still fires onChange.
+    e.currentTarget.value = '';
   };
 
   return (
@@ -81,10 +116,12 @@ export default function UploadForm({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer ${
-          isDragging
-            ? 'border-blue-500 bg-blue-50'
-            : 'border-gray-300 bg-gray-50 hover:border-gray-400'
+        className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+          isBusy
+            ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 cursor-not-allowed opacity-70'
+            : isDragging
+              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 cursor-pointer'
+              : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 hover:border-gray-400 cursor-pointer'
         }`}
       >
         <input
@@ -93,15 +130,15 @@ export default function UploadForm({
           accept=".pdf,.txt"
           onChange={handleFileSelect}
           className="hidden"
-          disabled={isLoading}
+          disabled={isBusy}
         />
 
         <div
-          onClick={() => fileInputRef.current?.click()}
-          className="cursor-pointer"
+          onClick={() => !isBusy && fileInputRef.current?.click()}
+          className={isBusy ? '' : 'cursor-pointer'}
         >
           <svg
-            className="mx-auto h-12 w-12 text-gray-400"
+            className={`mx-auto h-12 w-12 ${isBusy ? 'text-gray-300' : 'text-gray-400 dark:text-gray-500'}`}
             stroke="currentColor"
             fill="none"
             viewBox="0 0 48 48"
@@ -114,17 +151,21 @@ export default function UploadForm({
             />
           </svg>
 
-          <p className="mt-4 text-sm font-medium text-gray-900">
-            {isLoading ? 'Processing...' : 'Drag and drop your PDF or text file here'}
+          <p className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
+            {isUploading
+              ? 'Uploading...'
+              : disabled
+                ? 'Processing in progress...'
+                : 'Drag and drop your PDF or text file here'}
           </p>
-          <p className="mt-1 text-sm text-gray-500">
-            or click to browse
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            {isBusy ? 'Please wait' : 'or click to browse'}
           </p>
         </div>
       </div>
 
       {error && (
-        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+        <div className="mt-4 p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
           {error}
         </div>
       )}

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import ResultsView from '@/components/ResultsView';
+import AppShell from '@/components/AppShell';
 
 interface BidDetail {
   id: string;
@@ -48,47 +49,33 @@ export default function BidDetailPage() {
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-        <header className="bg-white shadow">
-          <div className="max-w-7xl mx-auto px-6 py-6">
-            <h1 className="text-3xl font-bold text-gray-900">Bid Details</h1>
-          </div>
-        </header>
-        <div className="max-w-7xl mx-auto px-6 py-12">
-          <div className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-blue-600 mb-4" />
-              <p className="text-gray-600 font-medium">Loading bid details...</p>
-            </div>
+      <AppShell title="Bid Details">
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-200 dark:border-blue-800 border-t-blue-600 mb-4" />
+            <p className="text-gray-600 dark:text-gray-400 font-medium">Loading bid details...</p>
           </div>
         </div>
-      </main>
+      </AppShell>
     );
   }
 
   if (error || !bid) {
     return (
-      <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-        <header className="bg-white shadow">
-          <div className="max-w-7xl mx-auto px-6 py-6">
-            <h1 className="text-3xl font-bold text-gray-900">Bid Details</h1>
-          </div>
-        </header>
-        <div className="max-w-7xl mx-auto px-6 py-12">
-          <div className="p-6 bg-red-50 border-l-4 border-red-500 rounded-lg">
-            <p className="text-red-700 font-semibold">Error</p>
-            <p className="text-red-600 text-sm mt-1">{error || 'Bid not found'}</p>
-            <div className="flex gap-4 mt-4">
-              <Link href="/" className="text-blue-600 hover:underline text-sm">
-                ← Back to Home
-              </Link>
-              <Link href="/bids" className="text-blue-600 hover:underline text-sm">
-                ← Back to Bid History
-              </Link>
-            </div>
+      <AppShell title="Bid Details">
+        <div className="p-6 bg-red-50 dark:bg-red-950/40 border-l-4 border-red-500 rounded-lg">
+          <p className="text-red-700 dark:text-red-400 font-semibold">Error</p>
+          <p className="text-red-600 dark:text-red-400 text-sm mt-1">{error || 'Bid not found'}</p>
+          <div className="flex gap-4 mt-4">
+            <Link href="/" className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
+              ← Back to Home
+            </Link>
+            <Link href="/bids" className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
+              ← Back to Bid History
+            </Link>
           </div>
         </div>
-      </main>
+      </AppShell>
     );
   }
 
@@ -103,50 +90,37 @@ export default function BidDetailPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* Header */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <div className="flex gap-4 mb-2">
-                <Link href="/" className="text-blue-600 hover:underline text-sm">
-                  ← Back to Home
-                </Link>
-                <Link href="/bids" className="text-blue-600 hover:underline text-sm">
-                  ← Back to Bid History
-                </Link>
-              </div>
-              <h1 className="text-3xl font-bold text-gray-900">Bid Details</h1>
-              <p className="text-gray-600 mt-1">{bid.file_name}</p>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-6 py-12">
+    <AppShell
+      title="Bid Details"
+      subtitle={bid.file_name}
+      actions={
+        <Link href="/bids" className="text-blue-600 dark:text-blue-400 hover:underline text-sm font-medium">
+          ← Back to Bid History
+        </Link>
+      }
+    >
+      <div>
         {/* Metadata */}
-        <div className="bg-white rounded-lg shadow p-6 mb-8">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             <div>
-              <p className="text-sm text-gray-600">Document Type</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Document Type</p>
               <p className="font-semibold text-lg">{bid.doc_type}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-600">Confidence</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Confidence</p>
               <p className="font-semibold text-lg">
                 {(bid.classification_confidence * 100).toFixed(1)}%
               </p>
             </div>
             <div>
-              <p className="text-sm text-gray-600">Risk Score</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Risk Score</p>
               <p className="font-semibold text-lg">
                 {(bid.risk_score * 100).toFixed(0)}%
               </p>
             </div>
             <div>
-              <p className="text-sm text-gray-600">Uploaded</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Uploaded</p>
               <p className="font-semibold text-sm">{formatDate(bid.created_at)}</p>
             </div>
           </div>
@@ -173,18 +147,18 @@ export default function BidDetailPage() {
         />
 
         {/* Extracted Text Preview */}
-        <div className="bg-white rounded-lg shadow p-6 mt-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mt-8">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
             Extracted Text Preview
           </h2>
-          <div className="bg-gray-50 rounded p-4 max-h-96 overflow-y-auto">
-            <p className="text-sm text-gray-700 whitespace-pre-wrap font-mono">
+          <div className="bg-gray-50 dark:bg-gray-900 rounded p-4 max-h-96 overflow-y-auto">
+            <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-mono">
               {bid.extracted_text.substring(0, 2000)}
               {bid.extracted_text.length > 2000 && '...'}
             </p>
           </div>
         </div>
       </div>
-    </main>
+    </AppShell>
   );
 }
