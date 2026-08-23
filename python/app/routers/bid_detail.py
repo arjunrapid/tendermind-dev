@@ -10,13 +10,14 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from app import db
+from app.auth import CurrentUser
 from app.memory import get_memory_manager
 
 router = APIRouter()
 
 
 @router.get("/api/bid/{bid_id}")
-async def get_bid(bid_id: str):
+async def get_bid(_user: CurrentUser, bid_id: str):
     try:
         bid = await db.get_bid_by_id(bid_id)
     except Exception as exc:
@@ -28,7 +29,7 @@ async def get_bid(bid_id: str):
 
 
 @router.delete("/api/bid/{bid_id}")
-async def delete_bid(bid_id: str):
+async def delete_bid(_user: CurrentUser, bid_id: str):
     try:
         deleted = await db.delete_bid(bid_id)
     except Exception as exc:

@@ -11,6 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.auth import AdminUser
 from app import db
 from models.factory import AVAILABLE_MODELS, list_providers
 
@@ -32,7 +33,7 @@ class SaveModelOverridesRequest(BaseModel):
 
 
 @router.get("/api/admin/models")
-async def get_model_overrides():
+async def get_model_overrides(_admin: AdminUser):
     try:
         saved = await db.get_agent_model_overrides()
     except Exception as exc:
@@ -50,7 +51,7 @@ async def get_model_overrides():
 
 
 @router.post("/api/admin/models")
-async def save_model_overrides(body: SaveModelOverridesRequest):
+async def save_model_overrides(body: SaveModelOverridesRequest, _admin: AdminUser):
     for entry in body.overrides:
         if entry.agent not in OVERRIDABLE_AGENTS:
             raise HTTPException(

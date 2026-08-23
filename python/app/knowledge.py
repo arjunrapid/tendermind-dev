@@ -87,26 +87,79 @@ def _format_context(domain: str, chunks: list[dict[str, Any]]) -> str:
     if not chunks:
         return f"No similar past {domain} history found in company knowledge base."
     lines = [f"Based on {len(chunks)} similar past {domain} analyses (most similar first):", ""]
+    total_chars = 0
     for i, chunk in enumerate(chunks, start=1):
         doc_type = (chunk.get("metadata") or {}).get("doc_type", "unknown")
         similarity = chunk.get("similarity", 0)
         lines.append(f"{i}. [{doc_type}, similarity={similarity:.2f}] {chunk['chunk_text'][:600]}")
         lines.append("")
+        total_chars += len(chunk["chunk_text"])
     return "\n".join(lines)
 
 
+# Minimum cosine similarity before a chunk is included in context.
+# 0.30 is a practical threshold: below this, chunks are essentially
+# unrelated to the query document and add noise rather than signal.
+_MIN_SIMILARITY = 0.30
+
+# Hard cap on total context characters injected per agent per run.
+# ~8 000 chars ≈ ~2 000 tokens, keeping retrieved context well within the
+# context budget of every supported model.
+_MAX_CONTEXT_CHARS = 8_000
+
+
 async def retrieve_domain_context(
-    document_text: str | None, domain: str, *, bid_id: str | None = None, k: int = 3
+    document_text: str | None,
+    domain: str,
+    *,
+    bid_id: str | None = None,
+    k: int = 3,
+    min_similarity: float = _MIN_SIMILARITY,
+    max_chars: int = _MAX_CONTEXT_CHARS,
 ) -> str:
     """Embed the new document and fetch only this domain's similar past
-    chunks. Returns a formatted string ready to inject into that agent's
-    prompt; never raises - retrieval failure just means no extra context."""
+    chunks, filtered by similarity threshold and capped to ``max_chars``.
+
+    Returns a formatted string ready to inject into that agent's prompt;
+    never raises - retrieval failure just means no extra context.
+
+    M3a/M3b: threshold filtering, deduplication (in db.query_similar_chunks),
+    and per-run context budgeting are all applied here.
+    """
     if not document_text:
         return f"No similar past {domain} history available (no document text)."
     try:
         query_embedding = await embed_text(document_text)
-        chunks = await db.query_similar_chunks(query_embedding, domain, k=k, exclude_bid_id=bid_id)
+        chunks = await db.query_similar_chunks(
+            query_embedding,
+            domain,
+            k=k,
+            exclude_bid_id=bid_id,
+            min_similarity=min_similarity,
+        )
     except Exception:
         logger.warning("Failed to retrieve %s knowledge context", domain, exc_info=True)
         return f"No similar past {domain} history available (retrieval error)."
-    return _format_context(domain, chunks)
+
+    # Context budget: truncate the chunk list so the total injected text
+    # stays within max_chars (most-similar chunks are kept first).
+    budget_chunks: list[dict] = []
+    total = 0
+    for chunk in chunks:
+        chunk_len = len(chunk.get("chunk_text", ""))
+        if total + chunk_len > max_chars:
+            break
+        budget_chunks.append(chunk)
+        total += chunk_len
+
+    logger.debug(
+        "Knowledge retrieval [domain=%s bid_id=%s]: %d/%d chunks used, %d chars, min_sim=%.2f",
+        domain,
+        bid_id,
+        len(budget_chunks),
+        len(chunks),
+        total,
+        min_similarity,
+    )
+
+    return _format_context(domain, budget_chunks)

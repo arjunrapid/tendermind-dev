@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.auth import AdminUser
 from app import db
 from app.boq import DEFAULT_BOQ_CONTINGENCY_PERCENTAGE, BoqItem, calculate_boq_costs
 
@@ -26,7 +27,7 @@ class SaveBoqRequest(BaseModel):
 
 
 @router.get("/api/admin/boq")
-async def get_boq_defaults():
+async def get_boq_defaults(_admin: AdminUser):
     try:
         items = await db.get_boq_defaults()
     except Exception as exc:
@@ -37,7 +38,7 @@ async def get_boq_defaults():
 
 
 @router.post("/api/admin/boq")
-async def save_boq_defaults(body: SaveBoqRequest):
+async def save_boq_defaults(body: SaveBoqRequest, _admin: AdminUser):
     if not body.items:
         raise HTTPException(status_code=400, detail="items must be a non-empty array")
 
