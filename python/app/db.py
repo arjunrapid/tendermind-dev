@@ -147,6 +147,17 @@ async def _initialize_schema() -> None:
         )
         await conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS counterparty_lookups (
+                company_name_normalized TEXT PRIMARY KEY,
+                source TEXT NOT NULL,
+                result JSONB NOT NULL,
+                fetched_at TIMESTAMP DEFAULT NOW(),
+                expires_at TIMESTAMP NOT NULL
+            );
+            """
+        )
+        await conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS users (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 username TEXT UNIQUE NOT NULL,
@@ -496,6 +507,43 @@ async def get_company_context(category: str | None = None) -> list[dict[str, Any
         d["created_at"] = d["created_at"].isoformat() if d.get("created_at") else None
         results.append(d)
     return results
+
+
+async def get_counterparty_lookup(company_name_normalized: str) -> dict[str, Any] | None:
+    """Cached counterparty-verification result, or None on a cache miss/expiry
+    (both treated the same by the caller - it just re-fetches)."""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT result FROM counterparty_lookups WHERE company_name_normalized = $1 AND expires_at > NOW();",
+            company_name_normalized,
+        )
+    if not row:
+        return None
+    result = row["result"]
+    return json.loads(result) if isinstance(result, str) else result
+
+
+async def save_counterparty_lookup(
+    company_name_normalized: str, source: str, result: dict[str, Any], ttl_days: int
+) -> None:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO counterparty_lookups (company_name_normalized, source, result, fetched_at, expires_at)
+            VALUES ($1, $2, $3, NOW(), NOW() + ($4 || ' days')::interval)
+            ON CONFLICT (company_name_normalized) DO UPDATE SET
+                source = EXCLUDED.source,
+                result = EXCLUDED.result,
+                fetched_at = NOW(),
+                expires_at = EXCLUDED.expires_at;
+            """,
+            company_name_normalized,
+            source,
+            json.dumps(result),
+            str(ttl_days),
+        )
 
 
 async def delete_company_context(context_id: str) -> dict[str, Any] | None:

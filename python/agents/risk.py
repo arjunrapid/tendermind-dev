@@ -32,6 +32,20 @@ def _financial_risk_to_score(rating: str | None) -> float:
     return {"HIGH": 0.9, "LOW": 0.15}.get(rating or "", 0.5)
 
 
+def _counterparty_to_score(verification: dict[str, Any] | None) -> float:
+    """Score contribution from agents/nodes.py's counterparty_verification
+    (app.counterparty.verify_counterparty via the verify_counterparty tool).
+    Absent/unavailable is treated as neutral (0.5), same as an unrated
+    financial_risk - no signal either way, not "safe"."""
+    if not verification:
+        return 0.5
+    if verification.get("debarred"):
+        return 0.9
+    return {"verified": 0.15, "flagged": 0.8, "unavailable": 0.5}.get(
+        verification.get("status") or "", 0.5
+    )
+
+
 def _risk_level(score: float) -> str:
     if score < 0.33:
         return "LOW"
@@ -76,10 +90,29 @@ def _extract_accounting_risks(accounting: dict[str, Any]) -> list[str]:
         risks.append(f"Accounting - Cash flow concern: {accounting.get('cash_flow_analysis', '')}")
     if _leading_rating(accounting.get("financial_risk", ""), ("HIGH",)):
         risks.append("Accounting - Overall financial risk rated HIGH")
+
+    verification = accounting.get("counterparty_verification")
+    if verification:
+        entity = verification.get("entity_name") or "the counterparty"
+        if verification.get("debarred"):
+            risks.append(f"Accounting - Counterparty '{entity}' is debarred/excluded from contracting")
+        elif verification.get("status") == "flagged":
+            risks.append(
+                f"Accounting - Counterparty '{entity}' registry status is "
+                f"{verification.get('registration_status', 'unclear')}"
+            )
     return risks
 
 
-def _recommendation(legal_risk_count: int, engineering_risk_count: int, risk_level: str) -> str:
+def _recommendation(
+    legal_risk_count: int, engineering_risk_count: int, risk_level: str, counterparty_debarred: bool = False
+) -> str:
+    # A debarred/excluded counterparty is disqualifying on its own - an
+    # otherwise-pristine legal/engineering read (each just one weighted
+    # component of risk_score) must not be able to dilute it back down to
+    # PROCEED, so this is checked before, not blended into, risk_level.
+    if counterparty_debarred:
+        return "DO_NOT_PROCEED"
     if legal_risk_count > 8:
         return "DO_NOT_PROCEED"
     if engineering_risk_count > 7:
@@ -240,13 +273,31 @@ def risk_agent(legal: dict[str, Any], engineering: dict[str, Any], accounting: d
         feasibility_rating = _leading_rating(engineering.get("feasibility", ""), ("HIGH", "MEDIUM", "LOW"))
         financial_rating = _leading_rating(accounting.get("financial_risk", ""), ("HIGH", "MEDIUM", "LOW"))
 
+        # A debarred/excluded counterparty is a hard stop regardless of what
+        # the LLM otherwise concluded about financial_risk, and regardless of
+        # how favorable the legal/engineering read is - this can't be a soft
+        # blend into risk_score (accounting is only 25% of that weighted
+        # sum, so even a maxed-out accounting_component can't reliably carry
+        # it to HIGH on its own). See _extract_accounting_risks for where
+        # this also becomes a listed risk factor, and _recommendation for
+        # the resulting DO_NOT_PROCEED override.
+        counterparty_debarred = bool((accounting.get("counterparty_verification") or {}).get("debarred"))
+        if counterparty_debarred:
+            financial_rating = "HIGH"
+
+        counterparty_score = _counterparty_to_score(accounting.get("counterparty_verification"))
+
         legal_component = _rating_to_score(legal_rating) * 0.65 + min(len(legal_risks) / 12, 1) * 0.35
         engineering_component = _feasibility_to_score(feasibility_rating) * 0.65 + min(len(engineering_risks) / 10, 1) * 0.35
-        accounting_component = _financial_risk_to_score(financial_rating) * 0.65 + min(len(accounting_risks) / 10, 1) * 0.35
+        accounting_component = (
+            _financial_risk_to_score(financial_rating) * 0.5
+            + min(len(accounting_risks) / 10, 1) * 0.3
+            + counterparty_score * 0.2
+        )
 
         risk_score = legal_component * 0.4 + engineering_component * 0.35 + accounting_component * 0.25
-        risk_level = _risk_level(risk_score)
-        recommendation = _recommendation(len(legal_risks), len(engineering_risks), risk_level)
+        risk_level = "HIGH" if counterparty_debarred else _risk_level(risk_score)
+        recommendation = _recommendation(len(legal_risks), len(engineering_risks), risk_level, counterparty_debarred)
         bid_decision = "NO" if recommendation == "DO_NOT_PROCEED" else "YES"
 
         return {

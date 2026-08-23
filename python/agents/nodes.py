@@ -10,11 +10,12 @@ parallel with no agent-specific wiring beyond "which prompt, which parser".
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
 
-from agents.deep_agent import last_message_text, run_deep_agent
+from agents.deep_agent import last_message_text, last_tool_result, run_deep_agent
 from agents.parsing import extract_bullet_points, extract_json_block, extract_rating_line, parse_array
 from agents.prompts import (
     ACCOUNTING_AGENT_SYSTEM_PROMPT,
@@ -23,7 +24,11 @@ from agents.prompts import (
     tool_user_message_for,
     user_message_for,
 )
-from agents.tools import company_context_tool_for_domain, document_tools_for_domain
+from agents.tools import (
+    company_context_tool_for_domain,
+    document_tools_for_domain,
+    verify_counterparty_tool,
+)
 from agents.tracing import agent_run_config
 from app.document_sections import filter_text_for_domain
 from app.knowledge import retrieve_domain_context
@@ -41,8 +46,17 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROVIDER = os.environ.get("DEFAULT_LLM_PROVIDER", "anthropic")
 
 
-def _model_for(provider: str | None, model: str | None):
-    return get_model(provider or DEFAULT_PROVIDER, model, temperature=0.7, max_tokens=2048)
+def _model_for(provider: str | None, model: str | None, agent: str):
+    """`provider="mock"` (per-request override or DEFAULT_LLM_PROVIDER=mock)
+    swaps in a scripted model that drives the same deep-agent/tool-calling
+    path as a real provider, without needing an API key - see models/mock.py.
+    Local dev/testing only."""
+    resolved = provider or DEFAULT_PROVIDER
+    if resolved == "mock":
+        from models.mock import mock_model_for
+
+        return mock_model_for(agent)
+    return get_model(resolved, model, temperature=0.7, max_tokens=2048)
 
 
 async def _inject_knowledge(system_prompt: str, domain: str, document_text: str | None, bid_id: str) -> str:
@@ -66,9 +80,14 @@ def _tools_for(agent: str, routed_text: str | None) -> list:
     it's an on-demand lookup (curated policies/standards an admin uploaded
     via the Company Context page), not part of the current document's
     content, so there's no equivalent "already in the prompt" case for it -
-    see agents/tools.py company_context_tool_for_domain."""
+    see agents/tools.py company_context_tool_for_domain.
+
+    `verify_counterparty` is only offered to the accounting agent - it's the
+    one that produces the financial_risk rating a debarred/dissolved
+    counterparty should influence (see agents/risk.py)."""
     extraction_tools = [] if routed_text else document_tools_for_domain(agent)
-    return extraction_tools + company_context_tool_for_domain(agent)
+    domain_tools = [verify_counterparty_tool] if agent == "accounting" else []
+    return extraction_tools + company_context_tool_for_domain(agent) + domain_tools
 
 
 def _user_message(
@@ -118,7 +137,7 @@ async def legal_agent(
             system_prompt=enriched_prompt,
             user_message=_user_message("legal", doc_type, document_text, document_id, routed_text),
             tools=_tools_for("legal", routed_text),
-            model=_model_for(provider, model),
+            model=_model_for(provider, model, "legal"),
             **agent_run_config("legal", bid_id, doc_type, provider=resolved_provider, document_id=document_id),
         )
         content = last_message_text(result_state)
@@ -172,7 +191,7 @@ async def engineering_agent(
             system_prompt=enriched_prompt,
             user_message=_user_message("engineering", doc_type, document_text, document_id, routed_text),
             tools=_tools_for("engineering", routed_text),
-            model=_model_for(provider, model),
+            model=_model_for(provider, model, "engineering"),
             **agent_run_config("engineering", bid_id, doc_type, provider=resolved_provider, document_id=document_id),
         )
         content = last_message_text(result_state)
@@ -229,7 +248,7 @@ async def accounting_agent(
             system_prompt=enriched_prompt,
             user_message=_user_message("accounting", doc_type, document_text, document_id, routed_text),
             tools=_tools_for("accounting", routed_text),
-            model=_model_for(provider, model),
+            model=_model_for(provider, model, "accounting"),
             **agent_run_config("accounting", bid_id, doc_type, provider=resolved_provider, document_id=document_id),
         )
         content = last_message_text(result_state)
@@ -254,6 +273,18 @@ async def accounting_agent(
                 "cash_flow_analysis": cash_flow_match.strip(),
                 "financial_risk": extract_rating_line(content, ("HIGH", "MEDIUM", "LOW")),
             }
+        # Read straight from the tool call rather than the LLM's JSON: this
+        # is what agents/risk.py's debarred-counterparty override keys off,
+        # so it must reflect what the registry lookup actually returned, not
+        # the agent's paraphrase of it. Absent (agent never identified a
+        # counterparty to check, or the tool was never called) is valid -
+        # risk.py treats missing counterparty_verification as "no signal".
+        tool_result_raw = last_tool_result(result_state, "verify_counterparty")
+        if tool_result_raw:
+            try:
+                result["counterparty_verification"] = json.loads(tool_result_raw)
+            except (TypeError, ValueError):
+                logger.warning("Failed to parse verify_counterparty tool result: %r", tool_result_raw)
         try:
             extract_and_save_memory("accounting", content, bid_id, doc_type)
         except Exception:

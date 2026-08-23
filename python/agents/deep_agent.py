@@ -123,3 +123,22 @@ def last_message_text(result_state: dict[str, Any]) -> str:
     last = messages[-1]
     content = getattr(last, "content", None) if not isinstance(last, dict) else last.get("content")
     return content or ""
+
+
+def last_tool_result(result_state: dict[str, Any], tool_name: str) -> str | None:
+    """Content of the most recent ToolMessage from `tool_name` in this run's
+    message history, or None if the tool was never called.
+
+    For a tool whose result should feed downstream logic directly (e.g.
+    agents/risk.py keying an override off it), read it here rather than
+    trusting the agent's own final-message transcription of the tool's
+    output - the same "deterministic operation, not laundered through the
+    LLM" principle as extract_document_text (see agents/tools.py)."""
+    for message in reversed(result_state.get("messages", [])):
+        name = getattr(message, "name", None) if not isinstance(message, dict) else message.get("name")
+        if name != tool_name:
+            continue
+        content = getattr(message, "content", None) if not isinstance(message, dict) else message.get("content")
+        if content:
+            return content
+    return None

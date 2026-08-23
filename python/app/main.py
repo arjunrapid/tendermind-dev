@@ -79,13 +79,21 @@ def _validate_env() -> None:
         "GOOGLE_API_KEY": "Google Gemini",
     }
     present = [name for name in provider_keys if os.environ.get(name)]
-    if not present:
+    if not present and os.environ.get("DEFAULT_LLM_PROVIDER") != "mock":
         logger.warning(
-            "No LLM provider API keys found (%s). Analysis will fail without at least one.",
+            "No LLM provider API keys found (%s). Analysis will fail without at least one "
+            "(or set DEFAULT_LLM_PROVIDER=mock / pass provider=\"mock\" per-request for local "
+            "testing without a real key - see models/mock.py).",
             ", ".join(provider_keys),
         )
-    else:
+    elif present:
         logger.info("LLM provider keys present: %s", ", ".join(present))
+
+    if not os.environ.get("OPENSANCTIONS_API_KEY"):
+        logger.warning(
+            "OPENSANCTIONS_API_KEY not set - counterparty verification will report 'unavailable' "
+            "for every bid rather than checking the client/awarding authority against sanctions/debarment watchlists."
+        )
 
 
 @asynccontextmanager
