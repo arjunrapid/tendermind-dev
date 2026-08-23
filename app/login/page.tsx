@@ -3,17 +3,34 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
-import { useTheme } from '@/lib/theme';
+import { Btn, MarketingShell, MicroLabel } from '@/components/ui';
 
 const SAMPLE_ACCOUNTS = [
-  { username: 'tmadmin', password: 'tmadmin123', label: 'Admin - sees the Admin section' },
-  { username: 'tmanalyst', password: 'tmanalyst123', label: 'Analyst - Admin section hidden' },
+  { username: 'tmadmin', password: 'tmadmin123', label: 'Admin — sees the Admin section' },
+  { username: 'tmanalyst', password: 'tmanalyst123', label: 'Analyst — Admin section hidden' },
+];
+
+const NEXT_STEPS = [
+  {
+    step: '01',
+    title: 'Upload a tender',
+    body: 'Drop in a contract, specification or bill of quantities. Text is extracted and the document is classified automatically.',
+  },
+  {
+    step: '02',
+    title: 'Four agents review it',
+    body: 'Legal, engineering and commercial assessments run together, then risk aggregates them into one decision.',
+  },
+  {
+    step: '03',
+    title: 'Decide with the evidence',
+    body: 'You get a bid / no-bid recommendation, a target price with its margin, and the specific factors behind both.',
+  },
 ];
 
 export default function LoginPage() {
   const router = useRouter();
   const { user, isLoading, login } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -38,83 +55,93 @@ export default function LoginPage() {
     setError(null);
   };
 
+  const inputClass =
+    'w-full bg-panel border border-line px-3.5 py-2.5 text-[14px] text-ink outline-none focus:border-line-strong';
+
   return (
-    <main className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center px-4 relative">
-      <button
-        onClick={toggleTheme}
-        aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-        title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-        className="absolute top-4 right-4 h-9 w-9 rounded-full flex items-center justify-center text-base border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors bg-white dark:bg-gray-800"
-      >
-        {theme === 'dark' ? '☀️' : '🌙'}
-      </button>
-      <div className="w-full max-w-sm">
-        <div className="text-center mb-8">
-          <div className="h-12 w-12 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-xl mx-auto mb-3">
-            T
+    <MarketingShell ctaHref="/welcome" ctaLabel="Back to site">
+      <section className="max-w-[1180px] mx-auto px-8 py-20">
+        <div className="grid gap-16 lg:grid-cols-[minmax(0,1fr)_380px]">
+          {/* Sign-in */}
+          <div className="max-w-[440px]">
+            <MicroLabel className="mb-4">Workspace access</MicroLabel>
+            <h1 className="text-[34px] leading-[1.1] font-semibold tracking-[-0.03em]">
+              Sign in to your workspace
+            </h1>
+            <p className="mt-4 text-[14px] leading-[1.7] text-ink-72">
+              This deployment runs with demo accounts so you can try the full analysis pipeline
+              without provisioning users.
+            </p>
+
+            <form onSubmit={handleSubmit} className="mt-9 space-y-5">
+              <div>
+                <label className="block text-[12px] text-ink-60 mb-2">Username</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                  className={inputClass}
+                  placeholder="tmadmin"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] text-ink-60 mb-2">Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  className={inputClass}
+                  placeholder="••••••••"
+                />
+              </div>
+
+              {error ? <p className="text-[13px] text-danger">{error}</p> : null}
+
+              <Btn type="submit" variant="accent" className="w-full">
+                Sign in
+              </Btn>
+            </form>
+
+            <div className="mt-10 border-t border-line pt-6">
+              <MicroLabel className="mb-4">Demo accounts</MicroLabel>
+              <div className="border border-line">
+                {SAMPLE_ACCOUNTS.map((account, i) => (
+                  <button
+                    key={account.username}
+                    type="button"
+                    onClick={() => fillSample(account)}
+                    className={`w-full text-left px-4 py-3.5 hover:bg-ink-08 transition-colors ${
+                      i > 0 ? 'border-t border-line' : ''
+                    }`}
+                  >
+                    <div className="font-mono text-[13px]">
+                      {account.username} / {account.password}
+                    </div>
+                    <div className="text-[11.5px] text-ink-45 mt-1">{account.label}</div>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-3 text-[11.5px] text-ink-45">Click an account to fill the form.</p>
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Tendermind</h1>
-          <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Sign in to continue</p>
+
+          {/* What happens next */}
+          <aside>
+            <MicroLabel className="mb-4">What happens next</MicroLabel>
+            <div className="grid gap-px bg-line border border-line">
+              {NEXT_STEPS.map((s) => (
+                <div key={s.step} className="bg-panel px-5 py-5">
+                  <div className="font-mono text-[11px] text-accent">{s.step}</div>
+                  <div className="text-[14px] font-semibold mt-2">{s.title}</div>
+                  <p className="text-[12.5px] leading-[1.6] text-ink-60 mt-2">{s.body}</p>
+                </div>
+              ))}
+            </div>
+          </aside>
         </div>
-
-        <form
-          onSubmit={handleSubmit}
-          className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 space-y-4"
-        >
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-              placeholder="tmadmin"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-              placeholder="••••••••"
-            />
-          </div>
-
-          {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
-
-          <button
-            type="submit"
-            className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
-          >
-            Sign in
-          </button>
-        </form>
-
-        <div className="mt-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-            Sample accounts (demo only)
-          </p>
-          <div className="space-y-2">
-            {SAMPLE_ACCOUNTS.map((account) => (
-              <button
-                key={account.username}
-                type="button"
-                onClick={() => fillSample(account)}
-                className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                <p className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">
-                  {account.username} / {account.password}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{account.label}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </main>
+      </section>
+    </MarketingShell>
   );
 }
