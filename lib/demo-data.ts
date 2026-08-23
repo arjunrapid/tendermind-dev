@@ -543,11 +543,18 @@ export const DEMO_TENDER = {
   ],
 };
 
-/** Baseline cost model behind the Commercial tab's scenario sliders (£000s). */
+/**
+ * Baseline cost model behind the Commercial tab's scenario sliders (£000s).
+ *
+ * Calibrated so that at the default lever positions (4.2% labour inflation,
+ * 3.5% material inflation, 7.5% contingency) the modelled cost against the
+ * £42.0M bid lands on the 19.8% gross margin quoted on the Overview tab —
+ * the two views read from the same numbers, so they must not disagree.
+ */
 export const DEMO_COST_BASE = {
-  labour: 19840,
-  material: 8420,
-  plant: 3260,
-  subcontract: 4180,
-  overhead: 2110,
+  labour: 16000,
+  material: 6800,
+  plant: 3100,
+  subcontract: 3400,
+  overhead: 1124,
 };
