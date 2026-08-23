@@ -34,15 +34,50 @@ function hasRatingWord(text: string, word: string): boolean {
 }
 
 export interface RiskAssessment {
-  risk_score: number; // 0.0 to 1.0
-  risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
+  risk_score: number | null; // 0.0 to 1.0, null when bid_decision is MANUAL_REVIEW
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN';
   risk_factors: string[];
   mitigation_strategies: string[];
-  recommendation: 'PROCEED' | 'PROCEED_WITH_CAUTION' | 'DO_NOT_PROCEED';
+  recommendation: 'PROCEED' | 'PROCEED_WITH_CAUTION' | 'DO_NOT_PROCEED' | 'MANUAL_REVIEW_REQUIRED';
   recommendation_rationale: string;
   aggregated_findings: string;
   contract_summary: string;
-  bid_decision: 'YES' | 'NO';
+  bid_decision: 'YES' | 'NO' | 'MANUAL_REVIEW';
+}
+
+/** Which upstream agents failed (marked `provider_used: 'error'` by their
+ * own catch block rather than throwing) - used to force a MANUAL_REVIEW
+ * decision instead of computing a risk score/bid price from a partial,
+ * silently-degraded analysis that would look exactly as confident as a
+ * complete one. */
+function failedAgents(
+  legal: LegalAssessment,
+  engineering: EngineeringAssessment,
+  accounting: AccountingAssessment,
+): string[] {
+  const failed: string[] = [];
+  if (legal.provider_used === 'error') failed.push('legal');
+  if (engineering.provider_used === 'error') failed.push('engineering');
+  if (accounting.provider_used === 'error') failed.push('accounting');
+  return failed;
+}
+
+function manualReviewResult(failed: string[]): RiskAssessment {
+  const agentsStr = failed.join(', ');
+  return {
+    risk_score: null,
+    risk_level: 'UNKNOWN',
+    risk_factors: failed.map((agent) => `${agent.charAt(0).toUpperCase()}${agent.slice(1)} agent analysis failed - automated result unavailable`),
+    mitigation_strategies: [
+      'Have a qualified reviewer manually assess this document before making a bid decision.',
+      'Re-run automated analysis once the underlying issue is resolved (check LLM provider/API key configuration and logs).',
+    ],
+    recommendation: 'MANUAL_REVIEW_REQUIRED',
+    recommendation_rationale: `Automated analysis failed for: ${agentsStr}. No bid recommendation can be made from an incomplete assessment - this document requires manual review before any bid decision.`,
+    aggregated_findings: `Analysis incomplete - ${agentsStr} agent(s) failed. Manual review required.`,
+    contract_summary: 'Unable to generate a reliable summary - part of the automated analysis failed. Manual review required.',
+    bid_decision: 'MANUAL_REVIEW',
+  };
 }
 
 /**
@@ -54,6 +89,11 @@ export function riskAgent(
   accounting: AccountingAssessment,
 ): RiskAssessment {
   console.log('[Risk Agent] Starting aggregation and risk analysis');
+
+  const failed = failedAgents(legal, engineering, accounting);
+  if (failed.length > 0) {
+    return manualReviewResult(failed);
+  }
 
   try {
     // Extract risk factors from each agent
@@ -127,18 +167,7 @@ export function riskAgent(
     return result;
   } catch (error) {
     console.error('[Risk Agent] Error during analysis:', error);
-
-    return {
-      risk_score: 0.99,
-      risk_level: 'HIGH',
-      risk_factors: ['Error during risk assessment - unable to aggregate findings'],
-      mitigation_strategies: ['Escalate to senior management for manual review'],
-      recommendation: 'DO_NOT_PROCEED',
-      recommendation_rationale: 'Unable to complete risk assessment due to analysis errors',
-      aggregated_findings: 'Risk assessment failed - manual review required',
-      contract_summary: 'Unable to generate contract summary due to analysis errors - manual review required.',
-      bid_decision: 'NO',
-    };
+    return manualReviewResult(['risk aggregation']);
   }
 }
 

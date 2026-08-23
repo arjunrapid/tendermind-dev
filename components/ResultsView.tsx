@@ -36,9 +36,9 @@ export default function ResultsView({ result }: ResultsViewProps) {
   ];
 
   return (
-    <div className="w-full bg-white rounded-lg shadow-lg overflow-hidden">
+    <div className="w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <div className="flex overflow-x-auto">
           {tabs.map((tab) => (
             <button
@@ -57,8 +57,8 @@ export default function ResultsView({ result }: ResultsViewProps) {
               }
               className={`px-4 py-3 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-600 hover:text-gray-900'
+                  ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900'
               }`}
             >
               {tab.label}
@@ -73,16 +73,16 @@ export default function ResultsView({ result }: ResultsViewProps) {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-gray-600">File Name</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">File Name</p>
                 <p className="font-semibold">{result.fileName}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-600">Document Type</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Document Type</p>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">
                     {result.classification.doc_type}
                   </span>
-                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                  <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 px-2 py-1 rounded">
                     {(result.classification.confidence * 100).toFixed(1)}%
                   </span>
                 </div>
@@ -90,34 +90,33 @@ export default function ResultsView({ result }: ResultsViewProps) {
             </div>
 
             <div className="grid grid-cols-3 gap-4 mt-6">
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-600">Risk Level</p>
+              <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                <p className="text-sm text-gray-600 dark:text-gray-400">Risk Level</p>
                 <p className="font-semibold text-lg">
                   {(result.riskAssessment?.risk_level as string) || 'N/A'}
                 </p>
               </div>
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-600">Risk Score</p>
+              <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                <p className="text-sm text-gray-600 dark:text-gray-400">Risk Score</p>
                 <p className="font-semibold text-lg">
-                  {(
-                    ((result.riskAssessment?.risk_score as number) || 0) * 100
-                  ).toFixed(0)}%
+                  {result.riskAssessment?.risk_score == null
+                    ? 'N/A'
+                    : `${(Number(result.riskAssessment.risk_score) * 100).toFixed(0)}%`}
                 </p>
               </div>
-              <div className="p-4 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-600">Confidence</p>
+              <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                <p className="text-sm text-gray-600 dark:text-gray-400">Confidence</p>
                 <p className="font-semibold text-lg">
-                  {(
-                    (result.bidRecommendation?.confidence_score as number) ||
-                    0
-                  ) * 100}%
+                  {result.bidRecommendation?.confidence_score == null
+                    ? 'N/A'
+                    : `${(Number(result.bidRecommendation.confidence_score) * 100).toFixed(0)}%`}
                 </p>
               </div>
             </div>
 
             {result.bidRecommendation?.agent_timings_ms ? (
               <div className="mt-6">
-                <h3 className="font-semibold text-gray-900 mb-2">Agent Run Times</h3>
+                <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">Agent Run Times</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {(() => {
                     const timings = result.bidRecommendation.agent_timings_ms as {
@@ -134,8 +133,8 @@ export default function ResultsView({ result }: ResultsViewProps) {
                       ['Risk', timings.risk_ms],
                     ];
                     return rows.map(([label, ms]) => (
-                      <div key={label} className="p-4 bg-gray-50 rounded-lg">
-                        <p className="text-sm text-gray-600">{label}</p>
+                      <div key={label} className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                        <p className="text-sm text-gray-600 dark:text-gray-400">{label}</p>
                         <p className="font-semibold text-lg">
                           {(ms / 1000).toFixed(1)}s
                         </p>
@@ -143,7 +142,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
                     ));
                   })()}
                 </div>
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                   Legal, Engineering, and Accounting run concurrently, so total wall-clock
                   time is roughly the slowest of the three (
                   {(
@@ -164,7 +163,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
           <div className="space-y-4">
             <div>
               <h3 className="font-semibold mb-2">Assessment</h3>
-              <p className="text-gray-700">
+              <p className="text-gray-700 dark:text-gray-300">
                 {String(result.legalAssessment?.overall_assessment || 'No data')}
               </p>
             </div>
@@ -176,7 +175,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
                   <ul className="list-disc list-inside space-y-1">
                     {(result.legalAssessment.compliance_issues as string[]).map(
                       (issue: string, idx: number) => (
-                        <li key={idx} className="text-gray-700">
+                        <li key={idx} className="text-gray-700 dark:text-gray-300">
                           {issue}
                         </li>
                       ),
@@ -192,7 +191,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
                   <ul className="list-disc list-inside space-y-1">
                     {(result.legalAssessment.risks as string[]).map(
                       (risk: string, idx: number) => (
-                        <li key={idx} className="text-gray-700">
+                        <li key={idx} className="text-gray-700 dark:text-gray-300">
                           {risk}
                         </li>
                       ),
@@ -207,7 +206,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
           <div className="space-y-4">
             <div>
               <h3 className="font-semibold mb-2">Feasibility</h3>
-              <p className="text-gray-700">
+              <p className="text-gray-700 dark:text-gray-300">
                 {String(result.engineeringAssessment?.feasibility || 'No data')}
               </p>
             </div>
@@ -215,7 +214,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
             {result.engineeringAssessment?.timeline_estimate ? (
               <div>
                 <h3 className="font-semibold mb-2">Timeline Estimate</h3>
-                <p className="text-gray-700">
+                <p className="text-gray-700 dark:text-gray-300">
                   {String(result.engineeringAssessment.timeline_estimate)}
                 </p>
               </div>
@@ -230,7 +229,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
                       result.engineeringAssessment
                         .structural_concerns as string[]
                     ).map((concern: string, idx: number) => (
-                      <li key={idx} className="text-gray-700">
+                      <li key={idx} className="text-gray-700 dark:text-gray-300">
                         {concern}
                       </li>
                     ))}
@@ -243,22 +242,22 @@ export default function ResultsView({ result }: ResultsViewProps) {
         {activeTab === 'accounting' && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <div className="p-4 bg-blue-50 rounded-lg">
-                <p className="text-sm text-gray-600">Material Costs</p>
+              <div className="p-4 bg-blue-50 dark:bg-blue-950/40 rounded-lg">
+                <p className="text-sm text-gray-600 dark:text-gray-400">Material Costs</p>
                 <p className="font-semibold text-lg">
                   ${Number(result.accountingAssessment?.material_costs || 0).toLocaleString()}
                 </p>
               </div>
-              <div className="p-4 bg-blue-50 rounded-lg">
-                <p className="text-sm text-gray-600">Labor Costs</p>
+              <div className="p-4 bg-blue-50 dark:bg-blue-950/40 rounded-lg">
+                <p className="text-sm text-gray-600 dark:text-gray-400">Labor Costs</p>
                 <p className="font-semibold text-lg">
                   ${Number(result.accountingAssessment?.labor_costs || 0).toLocaleString()}
                 </p>
               </div>
             </div>
 
-            <div className="p-4 bg-green-50 rounded-lg">
-              <p className="text-sm text-gray-600">Total Estimated Cost</p>
+            <div className="p-4 bg-green-50 dark:bg-green-950/40 rounded-lg">
+              <p className="text-sm text-gray-600 dark:text-gray-400">Total Estimated Cost</p>
               <p className="font-semibold text-2xl">
                 $
                 {Number(result.accountingAssessment?.total_estimated_cost || 0).toLocaleString()}
@@ -266,7 +265,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
             </div>
 
             <div>
-              <p className="text-sm text-gray-600">Contingency</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Contingency</p>
               <p className="font-semibold">
                 {String(result.accountingAssessment?.contingency_percentage || 0)}%
               </p>
@@ -278,7 +277,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="text-left text-gray-600 border-b border-gray-200">
+                      <tr className="text-left text-gray-600 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                         <th className="py-2 pr-4">Item</th>
                         <th className="py-2 pr-4">Quantity</th>
                         <th className="py-2 pr-4">Rate</th>
@@ -298,18 +297,18 @@ export default function ResultsView({ result }: ResultsViewProps) {
                         }>
                       ).map((item, idx) => (
                         <tr key={idx} className="border-b border-gray-100">
-                          <td className="py-2 pr-4 text-gray-900">{item.name}</td>
-                          <td className="py-2 pr-4 text-gray-700">
+                          <td className="py-2 pr-4 text-gray-900 dark:text-gray-100">{item.name}</td>
+                          <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">
                             {item.item_type === 'measured'
                               ? `${item.quantity} ${item.unit}`
                               : 'Lump sum'}
                           </td>
-                          <td className="py-2 pr-4 text-gray-700">
+                          <td className="py-2 pr-4 text-gray-700 dark:text-gray-300">
                             {item.item_type === 'measured'
                               ? `$${Number(item.unit_rate).toLocaleString()}/${item.unit}`
                               : '—'}
                           </td>
-                          <td className="py-2 font-semibold text-gray-900">
+                          <td className="py-2 font-semibold text-gray-900 dark:text-gray-100">
                             ${item.amount.toLocaleString()}
                           </td>
                         </tr>
@@ -324,8 +323,8 @@ export default function ResultsView({ result }: ResultsViewProps) {
 
         {activeTab === 'risk' && (
           <div className="space-y-4">
-            <div className="p-4 bg-yellow-50 rounded-lg border-2 border-yellow-200">
-              <p className="text-sm text-gray-600">Risk Level Assessment</p>
+            <div className="p-4 bg-yellow-50 dark:bg-yellow-950/40 rounded-lg border-2 border-yellow-200">
+              <p className="text-sm text-gray-600 dark:text-gray-400">Risk Level Assessment</p>
               <p className="font-semibold text-lg">
                 {String(result.riskAssessment?.risk_level || 'N/A')}
               </p>
@@ -343,7 +342,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
                   <ul className="list-disc list-inside space-y-1">
                     {(result.riskAssessment.risk_factors as string[]).map(
                       (factor: string, idx: number) => (
-                        <li key={idx} className="text-gray-700">
+                        <li key={idx} className="text-gray-700 dark:text-gray-300">
                           {factor}
                         </li>
                       ),
@@ -360,7 +359,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
                     {(
                       result.riskAssessment.mitigation_strategies as string[]
                     ).map((strategy: string, idx: number) => (
-                      <li key={idx} className="text-gray-700">
+                      <li key={idx} className="text-gray-700 dark:text-gray-300">
                         {strategy}
                       </li>
                     ))}
@@ -373,23 +372,44 @@ export default function ResultsView({ result }: ResultsViewProps) {
         {activeTab === 'bid' && (
           <div className="space-y-4">
             {(() => {
-              const isYes =
-                String(result.bidRecommendation?.bid_decision || '').toUpperCase() ===
-                'YES';
+              const decision = String(result.bidRecommendation?.bid_decision || '').toUpperCase();
+              const isYes = decision === 'YES';
+              const needsManualReview = decision === 'MANUAL_REVIEW';
+
+              if (needsManualReview) {
+                return (
+                  <div className="p-6 rounded-lg border-2 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Pricing</p>
+                    <p className="font-bold text-2xl text-amber-700 dark:text-amber-400">
+                      Manual Review Required
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                      No bid price is suggested - part of the automated analysis failed, so a
+                      price based on an incomplete assessment would be misleading.
+                    </p>
+                    {result.bidRecommendation?.pricing_strategy_rationale ? (
+                      <p className="text-gray-700 dark:text-gray-300 text-sm mt-3">
+                        {String(result.bidRecommendation.pricing_strategy_rationale)}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              }
+
               return (
                 <div
                   className={`p-6 rounded-lg border-2 ${
                     isYes
-                      ? 'bg-gradient-to-r from-green-50 to-blue-50 border-green-200'
-                      : 'bg-gray-50 border-gray-200'
+                      ? 'bg-gradient-to-r from-green-50 to-blue-50 border-green-200 dark:border-green-800'
+                      : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700'
                   }`}
                 >
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
                     {isYes ? 'Recommended Bid Price' : 'Reference Price (bid not recommended)'}
                   </p>
                   <p
                     className={`font-bold text-4xl ${
-                      isYes ? 'text-green-600' : 'text-gray-500'
+                      isYes ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'
                     }`}
                   >
                     $
@@ -397,18 +417,18 @@ export default function ResultsView({ result }: ResultsViewProps) {
                       result.bidRecommendation?.recommended_bid_price || 0
                     ).toLocaleString()}
                   </p>
-                  <p className="text-sm text-gray-600 mt-2">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
                     Total Project Cost: $
                     {Number(result.bidRecommendation?.estimated_cost || 0).toLocaleString()}
                   </p>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
                     Margin: {Number(result.bidRecommendation?.bid_margin_percentage || 0).toFixed(0)}%
                     {result.bidRecommendation?.profit_amount != null && (
                       <> (${Number(result.bidRecommendation.profit_amount).toLocaleString()} profit)</>
                     )}
                   </p>
                   {result.bidRecommendation?.pricing_strategy_rationale ? (
-                    <p className="text-gray-700 text-sm mt-3">
+                    <p className="text-gray-700 dark:text-gray-300 text-sm mt-3">
                       {String(result.bidRecommendation.pricing_strategy_rationale)}
                     </p>
                   ) : null}
@@ -418,27 +438,27 @@ export default function ResultsView({ result }: ResultsViewProps) {
 
             <div>
               <h3 className="font-semibold mb-2">Recommendation</h3>
-              <p className="text-gray-700 text-lg">
+              <p className="text-gray-700 dark:text-gray-300 text-lg">
                 {String(result.bidRecommendation?.recommendation || 'N/A')}
               </p>
             </div>
 
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <p className="text-sm text-gray-600">Overall Confidence</p>
-              <div className="mt-2 bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full"
-                  style={{
-                    width: `${Number(result.bidRecommendation?.confidence_score || 0) * 100}%`,
-                  }}
-                />
+            {result.bidRecommendation?.confidence_score != null && (
+              <div className="p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+                <p className="text-sm text-gray-600 dark:text-gray-400">Overall Confidence</p>
+                <div className="mt-2 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full"
+                    style={{
+                      width: `${Number(result.bidRecommendation.confidence_score) * 100}%`,
+                    }}
+                  />
+                </div>
+                <p className="mt-2 text-sm font-semibold">
+                  {(Number(result.bidRecommendation.confidence_score) * 100).toFixed(1)}%
+                </p>
               </div>
-              <p className="mt-2 text-sm font-semibold">
-                {(
-                  Number(result.bidRecommendation?.confidence_score || 0) * 100
-                ).toFixed(1)}%
-              </p>
-            </div>
+            )}
           </div>
         )}
 
@@ -449,29 +469,34 @@ export default function ResultsView({ result }: ResultsViewProps) {
                 result.riskAssessment?.bid_decision || '',
               ).toUpperCase();
               const isYes = decision === 'YES';
-              const riskScore = Number(result.riskAssessment?.risk_score || 0);
+              const needsManualReview = decision === 'MANUAL_REVIEW';
+              const riskScore = result.riskAssessment?.risk_score;
               const riskLevel = String(result.riskAssessment?.risk_level || 'N/A');
 
               return (
                 <div
                   className={`p-8 rounded-lg border-2 text-center ${
                     isYes
-                      ? 'bg-green-50 border-green-300'
-                      : 'bg-red-50 border-red-300'
+                      ? 'bg-green-50 dark:bg-green-950/40 border-green-300 dark:border-green-700'
+                      : needsManualReview
+                        ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700'
+                        : 'bg-red-50 dark:bg-red-950/40 border-red-300 dark:border-red-700'
                   }`}
                 >
-                  <p className="text-sm text-gray-600 mb-2">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                     Recommended to Bid?
                   </p>
                   <p
-                    className={`font-extrabold text-6xl ${
-                      isYes ? 'text-green-600' : 'text-red-600'
+                    className={`font-extrabold ${needsManualReview ? 'text-3xl' : 'text-6xl'} ${
+                      isYes ? 'text-green-600 dark:text-green-400' : needsManualReview ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
                     }`}
                   >
-                    {decision || 'N/A'}
+                    {needsManualReview ? 'MANUAL REVIEW REQUIRED' : decision || 'N/A'}
                   </p>
-                  <p className="text-gray-600 mt-3">
-                    Based on {riskLevel} risk ({(riskScore * 100).toFixed(0)}% risk score)
+                  <p className="text-gray-600 dark:text-gray-400 mt-3">
+                    {needsManualReview
+                      ? 'Part of the automated analysis failed - no automated bid decision was made.'
+                      : `Based on ${riskLevel} risk (${(Number(riskScore || 0) * 100).toFixed(0)}% risk score)`}
                   </p>
                 </div>
               );
@@ -479,7 +504,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
 
             <div>
               <h3 className="font-semibold mb-2">Contract Summary</h3>
-              <p className="text-gray-700 leading-relaxed">
+              <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
                 {String(
                   result.riskAssessment?.contract_summary ||
                     'No summary available.',
@@ -490,7 +515,7 @@ export default function ResultsView({ result }: ResultsViewProps) {
             {result.riskAssessment?.recommendation_rationale ? (
               <div>
                 <h3 className="font-semibold mb-2">Why</h3>
-                <p className="text-gray-700 leading-relaxed">
+                <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
                   {String(result.riskAssessment.recommendation_rationale)}
                 </p>
               </div>

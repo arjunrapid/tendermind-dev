@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
+import AppShell from '@/components/AppShell';
 
 interface BoqItem {
   key: string;
@@ -120,60 +120,43 @@ export default function AdminBoqPage() {
   const summary = items ? computeSummary(items, CONTINGENCY_PERCENTAGE) : null;
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <header className="bg-white shadow">
-        <div className="max-w-5xl mx-auto px-6 py-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Admin — Default Cost Items
-              </h1>
-              <p className="text-gray-600 mt-1">
-                Set default BOQ quantities and rates used for accounting calculations.
-              </p>
-            </div>
-            <Link
-              href="/"
-              className="inline-block px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              ← Back to Home
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <div className="max-w-5xl mx-auto px-6 py-12 space-y-6">
+    <AppShell
+      title="Default Cost Items"
+      subtitle="Set default BOQ quantities and rates used for accounting calculations"
+      requireAdmin
+    >
+      <div className="max-w-5xl space-y-6">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
-              <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-blue-600 mb-4" />
-              <p className="text-gray-600 font-medium">Loading defaults...</p>
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-blue-200 dark:border-blue-800 border-t-blue-600 mb-4" />
+              <p className="text-gray-600 dark:text-gray-400 font-medium">Loading defaults...</p>
             </div>
           </div>
         ) : items ? (
           <>
-            <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
+                  <thead className="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
                     <tr>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900 dark:text-gray-100">
                         Item
                       </th>
-                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900">
+                      <th className="px-6 py-3 text-left text-sm font-semibold text-gray-900 dark:text-gray-100">
                         Rate / Lump Sum
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     {items.map((item) => (
-                      <tr key={item.key} className="border-b border-gray-200">
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                      <tr key={item.key} className="border-b border-gray-200 dark:border-gray-700">
+                        <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-gray-100">
                           {item.name}
                         </td>
                         <td className="px-6 py-4 text-sm">
                           <div className="flex items-center gap-1">
-                            <span className="text-gray-500">$</span>
+                            <span className="text-gray-500 dark:text-gray-400">$</span>
                             <input
                               type="number"
                               value={
@@ -190,10 +173,10 @@ export default function AdminBoqPage() {
                                   e.target.value,
                                 )
                               }
-                              className="w-28 px-2 py-1 border border-gray-300 rounded"
+                              className="w-28 px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                             />
                             {item.item_type === 'measured' && item.unit && (
-                              <span className="text-gray-500 text-xs">
+                              <span className="text-gray-500 dark:text-gray-400 text-xs">
                                 /{item.unit}
                               </span>
                             )}
@@ -205,11 +188,11 @@ export default function AdminBoqPage() {
                 </table>
               </div>
 
-              <div className="p-6 border-t border-gray-200 flex items-center justify-between">
+              <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
                 <div>
-                  {error && <p className="text-red-600 text-sm">{error}</p>}
+                  {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
                   {savedMessage && (
-                    <p className="text-green-600 text-sm">{savedMessage}</p>
+                    <p className="text-green-600 dark:text-green-400 text-sm">{savedMessage}</p>
                   )}
                 </div>
                 <button
@@ -223,39 +206,39 @@ export default function AdminBoqPage() {
             </div>
 
             {summary && (
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-xl font-bold text-gray-900 mb-4">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-4">
                   Calculated Accounting Estimate
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="p-4 bg-blue-50 rounded-lg">
-                    <p className="text-sm text-gray-600">Measured Items</p>
+                  <div className="p-4 bg-blue-50 dark:bg-blue-950/40 rounded-lg">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Measured Items</p>
                     <p className="font-semibold text-lg">
                       ${summary.measured_cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </p>
                   </div>
-                  <div className="p-4 bg-blue-50 rounded-lg">
-                    <p className="text-sm text-gray-600">Lump Sum Items</p>
+                  <div className="p-4 bg-blue-50 dark:bg-blue-950/40 rounded-lg">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Lump Sum Items</p>
                     <p className="font-semibold text-lg">
                       ${summary.lump_sum_cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </p>
                   </div>
-                  <div className="p-4 bg-yellow-50 rounded-lg">
-                    <p className="text-sm text-gray-600">
+                  <div className="p-4 bg-yellow-50 dark:bg-yellow-950/40 rounded-lg">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
                       Contingency ({(summary.contingency_percentage * 100).toFixed(0)}%)
                     </p>
                     <p className="font-semibold text-lg">
                       ${summary.contingency_amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </p>
                   </div>
-                  <div className="p-4 bg-green-50 rounded-lg">
-                    <p className="text-sm text-gray-600">Total Estimated Cost</p>
+                  <div className="p-4 bg-green-50 dark:bg-green-950/40 rounded-lg">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Total Estimated Cost</p>
                     <p className="font-semibold text-lg">
                       ${summary.total_estimated_cost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </p>
                   </div>
                 </div>
-                <p className="text-gray-500 text-xs mt-4">
+                <p className="text-gray-500 dark:text-gray-400 text-xs mt-4">
                   This estimate is used as the accounting baseline for new document analyses
                   whenever the document itself doesn&apos;t specify enough cost detail.
                 </p>
@@ -264,6 +247,6 @@ export default function AdminBoqPage() {
           </>
         ) : null}
       </div>
-    </main>
+    </AppShell>
   );
 }
