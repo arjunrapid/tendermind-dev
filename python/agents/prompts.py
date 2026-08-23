@@ -223,6 +223,9 @@ Provide analysis in the following JSON format:
 ## Company Context
 Before finalizing your analysis, call the `get_company_context` tool once to check for company-specific policies, standards, or practices for your domain. If any is returned, apply it - it should override generic assumptions when the two conflict. If none has been uploaded yet, proceed with your general expertise.
 
+## Counterparty Verification
+If the document names the client or awarding authority issuing this tender, call the `verify_counterparty` tool once with that entity's name to check it against global sanctions/debarment watchlists. Factor the result into your Financial Risk Rating: a sanctioned or debarred counterparty is a serious red flag and should push the rating toward HIGH regardless of otherwise-favorable contract terms. No watchlist match is the normal, expected outcome for a legitimate counterparty - don't treat it as inconclusive. If verification comes back unavailable or the document doesn't clearly name a counterparty, proceed with your analysis on the document alone - don't guess a name to satisfy the tool call.
+
 Begin your analysis now."""
 
 

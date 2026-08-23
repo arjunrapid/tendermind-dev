@@ -118,6 +118,7 @@ Browser                  Next.js                  Python
 | `AUTH_ANALYST_PASSWORD` | `tmanalyst123` | Password for the seeded `tmanalyst` account |
 | `LANGSMITH_API_KEY` | *(unset)* | Enables LangSmith tracing |
 | `LANGCHAIN_PROJECT` | *(unset)* | LangSmith project name |
+| `OPENSANCTIONS_API_KEY` | *(unset)* | Enables counterparty (client/awarding authority) sanctions/debarment watchlist verification in the accounting agent; without it, verification reports `unavailable` and analysis proceeds on document text alone |
 
 ---
 

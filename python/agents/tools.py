@@ -16,6 +16,7 @@ needing to carry the full file bytes as an argument.
 
 from __future__ import annotations
 
+import json
 import tempfile
 import uuid
 from pathlib import Path
@@ -23,6 +24,7 @@ from pathlib import Path
 from langchain_core.tools import tool
 
 from app.company_context import get_context_for_category
+from app.counterparty import verify_counterparty
 from app.document_sections import filter_text_for_domain
 from app.pdf_extract import extract_text_from_file
 
@@ -142,3 +144,31 @@ def company_context_tool_for_domain(domain: str) -> list:
         return context or f"No company-specific {domain} context has been uploaded yet."
 
     return [_get_company_context]
+
+
+@tool("verify_counterparty")
+async def verify_counterparty_tool(company_name: str) -> str:
+    """Check a company against global sanctions, debarment, and PEP
+    watchlists (OpenSanctions - includes multilateral development bank
+    debarred-firms lists such as the World Bank's). Use this once you've
+    identified the tender's issuing client/awarding authority in the
+    document, to check whether it's barred from public contracting rather
+    than taking the document's own description at face value.
+
+    Args:
+        company_name: the client/awarding authority's name as it appears in
+            the document.
+
+    Returns:
+        A JSON object (as a string) with the watchlist status -
+        deterministic, no LLM involved. Restate its `summary` field in your
+        own findings; the structured fields are also read directly out of
+        this tool call's result by the caller, so respond to what they say
+        even if your own prose summary differs. Never raises - a lookup
+        failure or missing configuration comes back as status="unavailable"
+        rather than an error, and analysis should proceed on the document
+        alone in that case. No match on any watchlist is the normal, good
+        outcome (status="verified") - it does not mean the check failed.
+    """
+    result = await verify_counterparty(company_name)
+    return json.dumps(result)
