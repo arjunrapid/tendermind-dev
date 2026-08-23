@@ -14,6 +14,7 @@ export interface AccountingAssessment extends Record<string, unknown> {
   payment_terms: string[];
   qualification_requirements: string[];
   cash_flow_analysis: string;
+  financial_risk: string;
   total_estimated_cost?: number;
   citations_valid?: boolean;
   provider_used?: string;
@@ -57,6 +58,13 @@ Financial sustainability:
 - Early payment discounts or financing options
 - Duration of payment cycles from invoice to receipt
 
+### 5. Financial Risk Rating
+Rate overall financial risk (HIGH/MEDIUM/LOW) based on:
+- Payment term favorability and cash flow impact
+- Retention/holdback exposure relative to margin
+- Difficulty of meeting qualification requirements
+- Overall financial sustainability of taking on this bid
+
 ## Citation Requirements
 **IMPORTANT: Every statement MUST include a citation.**
 Use format: [page:N, section:NAME] or [page N, NAME] for each claim.
@@ -78,7 +86,8 @@ Provide analysis in the following JSON format:
     "Requirement 1 [page:X, section:Y]",
     "Requirement 2 [page:X, section:Y]"
   ],
-  "cash_flow_analysis": "Summary of cash flow implications and working capital needs [page:X]"
+  "cash_flow_analysis": "Summary of cash flow implications and working capital needs [page:X]",
+  "financial_risk": "HIGH/MEDIUM/LOW - Rationale [page:X]"
 }
 \`\`\`
 
@@ -150,6 +159,7 @@ export async function accountingAgent(
       payment_terms: assessment.payment_terms,
       qualification_requirements: assessment.qualification_requirements,
       cash_flow_analysis: assessment.cash_flow_analysis,
+      financial_risk: assessment.financial_risk,
       citations_valid: citationReport.is_compliant,
       provider_used: llmResponse.provider_used,
     };
@@ -164,6 +174,7 @@ export async function accountingAgent(
       payment_terms: ['Unable to complete automated analysis'],
       qualification_requirements: [],
       cash_flow_analysis: 'Unable to complete financial analysis - requires manual review',
+      financial_risk: 'HIGH: Analysis failed - requires manual accounting review',
       citations_valid: false,
       provider_used: 'error',
     };
@@ -179,6 +190,7 @@ function parseAssessment(content: string): {
   payment_terms: string[];
   qualification_requirements: string[];
   cash_flow_analysis: string;
+  financial_risk: string;
 } {
   try {
     const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -189,6 +201,7 @@ function parseAssessment(content: string): {
         payment_terms: parseArray(parsed.payment_terms),
         qualification_requirements: parseArray(parsed.qualification_requirements),
         cash_flow_analysis: String(parsed.cash_flow_analysis || 'Analysis unavailable'),
+        financial_risk: String(parsed.financial_risk || 'MEDIUM - Insufficient data'),
       };
     }
   } catch (e) {
@@ -200,6 +213,7 @@ function parseAssessment(content: string): {
     payment_terms: extractBulletPoints(content, 'payment'),
     qualification_requirements: extractBulletPoints(content, 'qualification'),
     cash_flow_analysis: extractCashFlowSummary(content),
+    financial_risk: extractRatingLine(content, ['HIGH', 'MEDIUM', 'LOW']),
   };
 }
 
@@ -238,6 +252,14 @@ function extractCashFlowSummary(text: string): string {
 
   const summary = text.substring(0, 500);
   return summary.length > 0 ? summary : 'Cash flow analysis pending detailed review';
+}
+
+function extractRatingLine(text: string, ratings: string[]): string {
+  const match = text.match(new RegExp(`(${ratings.join('|')})[^.\\n]*`, 'i'));
+  if (match) {
+    return match[0];
+  }
+  return 'Financial risk assessment pending detailed review';
 }
 
 /**

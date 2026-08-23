@@ -105,6 +105,7 @@ export function riskAgent(
     const riskScore = calculateRiskScore(
       legal,
       engineering,
+      accounting,
       legalRisks,
       engineeringRisks,
       accountingRisks,
@@ -285,6 +286,11 @@ function extractAccountingRisks(accounting: AccountingAssessment): string[] {
     }
   }
 
+  // Check overall financial risk rating
+  if (accounting.financial_risk && hasRatingWord(String(accounting.financial_risk), 'HIGH')) {
+    risks.push('Accounting - Overall financial risk is HIGH: major financial concerns identified');
+  }
+
   return risks;
 }
 
@@ -296,14 +302,16 @@ function extractAccountingRisks(accounting: AccountingAssessment): string[] {
  * cap, warranty, LDs, retention, etc.) whether or not those terms are
  * actually unfavorable. Counting alone clustered almost every document
  * around ~0.55-0.70, regardless of content - the qualitative rating each
- * agent already gives (legal GREEN/YELLOW/RED, engineering feasibility) is
- * the real severity signal and now carries most of the weight; the item
- * count is kept only as a smaller modifier so an unusually long list of
- * concerns still nudges the score up within its severity band.
+ * agent already gives (legal GREEN/YELLOW/RED, engineering feasibility,
+ * accounting financial_risk) is the real severity signal and now carries
+ * most of the weight; the item count is kept only as a smaller modifier so
+ * an unusually long list of concerns still nudges the score up within its
+ * severity band.
  */
 function calculateRiskScore(
   legal: LegalAssessment,
   engineering: EngineeringAssessment,
+  accounting: AccountingAssessment,
   legalRisks: string[],
   engineeringRisks: string[],
   accountingRisks: string[],
@@ -318,9 +326,9 @@ function calculateRiskScore(
   const engineeringComponent =
     feasibilityRating * 0.65 + countFactor(engineeringRisks.length, 10) * 0.35;
 
-  // Accounting assessments don't carry an explicit rating field, so stay
-  // count-based here.
-  const accountingComponent = countFactor(accountingRisks.length, 10);
+  const financialRating = financialRiskToScore(String(accounting.financial_risk || ''));
+  const accountingComponent =
+    financialRating * 0.65 + countFactor(accountingRisks.length, 10) * 0.35;
 
   return legalComponent * 0.4 + engineeringComponent * 0.35 + accountingComponent * 0.25;
 }
@@ -343,6 +351,16 @@ function ratingToScore(overallAssessment: string): number {
 function feasibilityToScore(feasibility: string): number {
   if (hasRatingWord(feasibility, 'LOW')) return 0.9;
   if (hasRatingWord(feasibility, 'HIGH')) return 0.15;
+  return 0.5; // MEDIUM or unrecognized
+}
+
+/**
+ * Maps the accounting agent's HIGH/MEDIUM/LOW financial_risk rating to a 0-1
+ * severity score (HIGH financial risk = high risk).
+ */
+function financialRiskToScore(financialRisk: string): number {
+  if (hasRatingWord(financialRisk, 'HIGH')) return 0.9;
+  if (hasRatingWord(financialRisk, 'LOW')) return 0.15;
   return 0.5; // MEDIUM or unrecognized
 }
 
@@ -449,6 +467,17 @@ function generateRationale(
       rationale += 'Engineering feasibility is MEDIUM - manageable with planning. ';
     } else {
       rationale += 'Engineering feasibility is HIGH - project is executable. ';
+    }
+  }
+
+  // Accounting assessment
+  if (accounting.financial_risk && typeof accounting.financial_risk === 'string') {
+    if (hasRatingWord(accounting.financial_risk, 'HIGH')) {
+      rationale += 'Financial risk is HIGH - significant cost/cash-flow exposure. ';
+    } else if (hasRatingWord(accounting.financial_risk, 'MEDIUM')) {
+      rationale += 'Financial risk is MEDIUM - manageable with planning. ';
+    } else {
+      rationale += 'Financial risk is LOW - terms are favorable. ';
     }
   }
 
