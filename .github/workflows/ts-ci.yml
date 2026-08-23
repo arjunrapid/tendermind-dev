@@ -1,0 +1,53 @@
+name: TypeScript CI
+
+on:
+  push:
+    paths:
+      - 'app/**'
+      - 'components/**'
+      - 'lib/**'
+      - 'package.json'
+      - 'tsconfig.json'
+      - '.github/workflows/ts-ci.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'components/**'
+      - 'lib/**'
+      - 'package.json'
+      - 'tsconfig.json'
+      - '.github/workflows/ts-ci.yml'
+
+jobs:
+  type-check-and-build:
+    name: Type-check & build (TypeScript / Next.js)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # PageProps/LayoutProps are global helpers Next.js generates, not types
+      # shipped in the package - they only exist after `next dev`, `next build`,
+      # or `next typegen`. A clean CI checkout has none of those, so tsc must
+      # generate them first or it fails with "Cannot find name 'LayoutProps'".
+      - name: Generate Next.js route types
+        run: npx next typegen
+
+      - name: TypeScript type-check
+        run: npx tsc --noEmit
+
+      - name: Next.js build (lint + compile)
+        env:
+          # Dummy values so Next.js doesn't error on missing env at build time.
+          PYTHON_BACKEND_URL: 'http://localhost:8000'
+          DATABASE_URL: 'placeholder-not-a-real-db-url'
+        run: npm run build

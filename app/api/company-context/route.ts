@@ -7,22 +7,31 @@ import { NextRequest, NextResponse } from 'next/server';
  * since Next.js's Request body can only be consumed once and `formData()`
  * is the simplest way to inspect+forward it faithfully (fetch sets its own
  * correct multipart boundary from the FormData instance).
+ * Admin writes (POST) are protected by JWT on the Python side.
  */
 const PYTHON_BACKEND_URL = process.env.PYTHON_BACKEND_URL || 'http://localhost:8000';
 
 export async function GET(request: NextRequest) {
   try {
     const category = request.nextUrl.searchParams.get('category');
+    const correlationId = request.headers.get('x-request-id') || crypto.randomUUID();
+    const authHeader = request.headers.get('authorization') || '';
+
     const url = new URL(`${PYTHON_BACKEND_URL}/api/company-context`);
     if (category) url.searchParams.set('category', category);
 
-    const response = await fetch(url.toString());
+    const response = await fetch(url.toString(), {
+      headers: {
+        'X-Request-ID': correlationId,
+        ...(authHeader ? { Authorization: authHeader } : {}),
+      },
+    });
     const data = await response.json();
 
     if (!response.ok) {
-      return NextResponse.json({ error: data.detail || 'Failed to fetch company context' }, { status: response.status });
+      return NextResponse.json({ error: data.detail || 'Failed to fetch company context' }, { status: response.status, headers: { 'X-Request-ID': correlationId } });
     }
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: { 'X-Request-ID': correlationId } });
   } catch (error) {
     console.error('Error proxying to Python company-context backend:', error);
     return NextResponse.json(
@@ -39,17 +48,23 @@ export async function POST(request: NextRequest) {
     for (const [key, value] of incoming.entries()) {
       outgoing.append(key, value);
     }
+    const correlationId = request.headers.get('x-request-id') || crypto.randomUUID();
+    const authHeader = request.headers.get('authorization') || '';
 
     const response = await fetch(`${PYTHON_BACKEND_URL}/api/company-context`, {
       method: 'POST',
       body: outgoing,
+      headers: {
+        'X-Request-ID': correlationId,
+        ...(authHeader ? { Authorization: authHeader } : {}),
+      },
     });
     const data = await response.json();
 
     if (!response.ok) {
-      return NextResponse.json({ error: data.detail || 'Failed to save company context' }, { status: response.status });
+      return NextResponse.json({ error: data.detail || 'Failed to save company context' }, { status: response.status, headers: { 'X-Request-ID': correlationId } });
     }
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: { 'X-Request-ID': correlationId } });
   } catch (error) {
     console.error('Error proxying to Python company-context backend:', error);
     return NextResponse.json(

@@ -1,455 +1,413 @@
 # Tendermind - Complete Agent Implementation Guide
 
+**Last Updated**: 2026-08-22
+
 ## 📊 Status Overview
 
-**Phase 2: Multi-Agent System** ✅ **COMPLETE**
-**Phase 3: Pricing Engine** ✅ **COMPLETE**
+There are **two agent implementations** in this repository:
 
-| Component | Status | Features | LLM |
-|-------|--------|----------|-----|
-| Legal Agent | ✅ Done | Contract analysis, compliance, risks | TokenRouter + Anthropic |
-| Engineering Agent | ✅ Done | Feasibility, scope, timeline | TokenRouter + Anthropic |
-| Accounting Agent | ✅ Done | Costs, payment terms, cash flow | TokenRouter + Anthropic |
-| Risk Agent | ✅ Done | Aggregation, final recommendation | Deterministic (no LLM) |
-| Pricing Engine | ✅ Done | LD cap, retention, lock-up, bid price | Deterministic (no LLM) |
-| Reference Testing | ✅ Done | EBTSL 7187 tender validation | All agents + pricing |
+| | Python (`python/`) | TypeScript (`lib/agents/`) |
+|---|---|---|
+| Status | **Live** - serves `/api/analyze` | Legacy - test scripts only |
+| Framework | LangGraph + `deepagents` | Direct `callLLM()` calls |
+| Orchestration | Orchestrator node + parallel fan-out | Sequential calls in test harness |
+| Context | File-based memory **+** pgvector knowledge + company context tool | File-based agent memory |
+| Tracing | LangSmith | Console logging |
 
-**Total Implementation**: ~10-12 hours  
-**TypeScript Build**: ✅ Zero errors (`npm run build` + `tsc --noEmit -p tsconfig.json` both clean)  
-**Test Coverage**: ✅ All agents tested, pricing engine has 21 passing assertions
+The two share the same **risk scoring algorithm**, the same **assessment
+shapes**, and the same **response contract**, so this guide describes them
+together and flags differences where they exist.
 
----
-
-## 💵 Pricing Engine (`lib/pricing-engine.ts`)
-
-Purely deterministic math — **no LLM calls**, per the PRD's "no LLM for math" decision. Two entry points:
-
-- `calculatePricing(inputs: PricingInputs)` — pass explicit numbers, get a full `PricingBreakdown`.
-- `calculatePricingFromDocument(documentText)` — regex-extracts contract value, LD rate/cap, performance security %, and retention % directly from the source document, falling back to industry-standard defaults (documented in `DEFAULT_PRICING_PARAMETERS`) for anything not stated. Every fallback is logged in `assumptions_used` on the result for auditability.
-
-**Calculations**:
-```
-material_cost + labor_cost → base_cost
-contingency_amount = base_cost * contingency_%
-total_estimated_cost = base_cost + contingency_amount
-recommended_bid_price = total_estimated_cost * (1 + target_margin_%)
-
-ld_exposure_per_week = contract_value * ld_rate_per_week_%
-ld_cap_amount = contract_value * ld_cap_%
-weeks_to_reach_cap = ceil(ld_cap_amount / ld_exposure_per_week)
-
-performance_security_amount = contract_value * performance_security_%
-retention_per_invoice = (contract_value / invoices_count) * retention_rate_%
-total_retention_held = min(retention_per_invoice * invoices_count, contract_value * retention_cap_%)
-
-total_lockup = performance_security_amount + total_retention_held
-```
-
-Wired into `app/api/analyze/route.ts` — `bidRecommendation` and the saved `pricing_breakdown` now come from this engine instead of the old mock accounting numbers.
-
-**Tests**: `test-pricing-engine.ts` — verified against the EBTSL 7187 reference terms ($12.5M contract, 0.5%/week LD capped at 5%, 10% performance security, 5% retention). All 21 assertions pass, including a fixed floating-point rounding bug where per-invoice retention needed to be computed on unrounded values before summing across 12 invoices (rounding each installment first caused the total to land $0.04 short of the cap).
-
-Run it directly (no API keys needed — pure math):
-```bash
-npx tsx test-pricing-engine.ts
-```
+| Agent | LLM? | Python | TypeScript |
+|-------|------|--------|------------|
+| Orchestrator | Yes | `agents/orchestrator.py` | — (no equivalent) |
+| Legal | Yes | `agents/nodes.py::legal_agent` | `lib/agents/legal-agent.ts` |
+| Engineering | Yes | `agents/nodes.py::engineering_agent` | `lib/agents/engineering-agent.ts` |
+| Accounting | Yes | `agents/nodes.py::accounting_agent` | `lib/agents/accounting-agent.ts` |
+| Risk | **No** - deterministic | `agents/risk.py::risk_agent` | `lib/agents/risk-agent.ts` |
+| Pricing | **No** - deterministic | `app/pricing_engine.py` | `lib/pricing-engine.ts` |
 
 ---
 
 ## 🏗️ Architecture Overview
 
-### System Diagram
+### Live pipeline (Python / LangGraph)
+
+Defined in `python/graph/pipeline.py`:
 
 ```
-Upload Document
-      ↓
-[PDF Extraction] → Extract Text
-      ↓
-[Classification] → Determine Doc Type (CONTRACT, BOQ, etc.)
-      ↓
-    ┌─────────────────────────────┐
-    │   Multi-Agent Analysis       │
-    │                              │
-    │ ┌─────────────────────────┐ │
-    │ │  Legal Agent (LLM)      │ │
-    │ │ - Compliance issues     │ │
-    │ │ - Contract terms        │ │
-    │ │ - Legal risks           │ │
-    │ │ - 100% citations        │ │
-    │ └─────────────────────────┘ │
-    │              ↓              │
-    │ ┌─────────────────────────┐ │
-    │ │  Engineering Agent (LLM)│ │
-    │ │ - Scope analysis        │ │
-    │ │ - Feasibility           │ │
-    │ │ - Timeline              │ │
-    │ │ - Site requirements     │ │
-    │ └─────────────────────────┘ │
-    │              ↓              │
-    │ ┌─────────────────────────┐ │
-    │ │  Accounting Agent (LLM) │ │
-    │ │ - Cost analysis         │ │
-    │ │ - Payment terms         │ │
-    │ │ - Cash flow             │ │
-    │ │ - Qualifications        │ │
-    │ └─────────────────────────┘ │
-    │              ↓              │
-    │ ┌─────────────────────────┐ │
-    │ │  Risk Agent (Aggregate) │ │
-    │ │ - Score all findings    │ │
-    │ │ - Rank risk factors     │ │
-    │ │ - Final recommendation  │ │
-    │ └─────────────────────────┘ │
-    └─────────────────────────────┘
-      ↓
-[Save Results] → Database + Memory
-      ↓
-[Show Recommendation]
-- PROCEED / PROCEED_WITH_CAUTION / DO_NOT_PROCEED
-- Risk score (0.0-1.0)
-- Key factors & mitigations
+                    START
+                      ↓
+              ┌───────────────┐
+              │  Orchestrator │  Reads the whole document once and splits it
+              │     (LLM)     │  into three verbatim per-domain excerpts.
+              └───────────────┘  Falls back to keyword filtering
+                      ↓          (app/document_sections.py) on failure.
+        ┌─────────────┼─────────────┐
+        ↓             ↓             ↓        ← fan-out: all three run in
+  ┌──────────┐  ┌──────────┐  ┌──────────┐     parallel, each seeing only
+  │  Legal   │  │Engineering│ │Accounting│     its own excerpt
+  │  (LLM)   │  │  (LLM)   │  │  (LLM)   │
+  └──────────┘  └──────────┘  └──────────┘
+        └─────────────┼─────────────┘
+                      ↓        ← join: risk waits for all three
+              ┌───────────────┐
+              │  Risk Agent   │  Deterministic aggregation. No LLM.
+              │(deterministic)│
+              └───────────────┘
+                      ↓
+                     END
 ```
 
----
+**Why the orchestrator exists**: without it, all three domain agents received
+the entire document. The orchestrator routes judgment-based rather than by
+keyword, so a clause like "the contractor shall bear all costs arising from
+delay" is correctly routed to legal even though no keyword list would predict it.
 
-## 📁 Agent Files
+### Legacy pipeline (TypeScript)
 
-### Core Agent Implementations
-
-```
-lib/agents/
-├── legal-agent.ts           (11 KB) ✅ Complete
-├── engineering-agent.ts     (11 KB) ✅ Complete
-├── accounting-agent.ts      (10 KB) ✅ Complete
-├── risk-agent.ts            (12 KB) ✅ Complete
-└── mock-agents.ts           (6 KB) [Deprecated - kept for reference]
-```
-
-### Integration Points
-
-```
-app/api/analyze/route.ts      ✅ Updated to use all real agents
-```
-
-### Test Scripts
-
-```
-test-legal-agent.ts           ✅ Test individual Legal Agent
-test-reference-tender.ts      ✅ Full end-to-end test with EBTSL 7187
-```
-
----
-
-## 🔑 Key Features Across All Agents
-
-### 1. **LLM Integration** (Legal, Engineering, Accounting)
-
-Each agent leverages the multi-provider infrastructure:
-
-```typescript
-const response = await callLLM({
-  system_prompt: enrichedPrompt,  // With memory context injected
-  user_message: documentText,
-  max_tokens: 2048,
-  temperature: 0.7,
-  timeout_ms: 30000,
-  retry_count: 2,
-});
-
-// Automatic failover:
-// TokenRouter → Anthropic → Error handling
-```
-
-### 2. **Memory Learning** (Legal, Engineering, Accounting)
-
-Each agent learns from past analyses:
-
-```typescript
-// Inject past learnings
-const enrichedPrompt = await injector.injectMemoryContext(
-  basePrompt,
-  'legal',    // or 'engineering', 'accounting'
-  documentText,
-);
-
-// Save new learnings for future use
-await injector.extractAndSaveMemory(
-  'legal',
-  llmResponse.content,
-  bidId,
-  docType,
-);
-```
-
-**Result**: Each agent gets smarter with every analysis.
-
-### 3. **Citation Validation** (Legal, Engineering, Accounting)
-
-100% citation requirement enforced:
-
-```typescript
-const facts = extractFactsFromAssessment(assessment);
-const validation = validateCitations(facts);
-
-if (!validation.is_compliant) {
-  console.warn(`${validation.uncited_facts.length} uncited facts`);
-}
-```
-
-### 4. **Error Handling & Resilience**
-
-All agents include comprehensive error handling:
-
-```typescript
-try {
-  // Analysis pipeline
-} catch (error) {
-  // Return fallback assessment
-  return {
-    findings: ['Error during analysis - manual review required'],
-    citations_valid: false,
-    provider_used: 'error',
-  };
-}
-```
+No orchestrator. Each agent receives the full document text, injects file-based
+memory context, calls `callLLM()`, validates citations, and saves learnings. The
+risk agent then aggregates. This path is exercised only by the root `test-*.ts`
+scripts.
 
 ---
 
 ## 🎯 What Each Agent Does
 
-### Legal Agent (`legal-agent.ts`)
+### Orchestrator (Python only)
 
-**Input**: Any contract or legal document  
-**Output**: LegalAssessment
+**Input**: full document text
+**Output**: `{ legal_content, engineering_content, accounting_content }`
+
+Reproduces relevant source text **verbatim** (no summarising or paraphrasing),
+preserving any existing `[page:N, section:X]` citations. Content relevant to
+more than one domain may appear in more than one excerpt. Falls back to
+`app/document_sections.py` keyword filtering if the LLM call or JSON parse fails.
+
+---
+
+### Legal Agent
+
+**Input**: contract/legal content
+**Output**: `LegalAssessment`
 
 ```typescript
 {
   compliance_issues: string[];    // Non-compliance findings
   contract_terms: string[];       // Critical terms extracted
   risks: string[];                // Legal risks identified
-  overall_assessment: string;     // GREEN/YELLOW/RED
-  citations_valid: boolean;       // 100% cited?
-  provider_used: string;          // Which LLM was used
+  overall_assessment: string;     // Leads with GREEN / YELLOW / RED
+  citations_valid?: boolean;
+  provider_used?: string;
 }
 ```
 
-**Focus Areas**:
-- Regulatory compliance (building codes, procurement rules)
-- Contractual terms (payment, liability, termination)
-- Legal obligations (indemnification, warranty)
-- Dispute resolution mechanisms
+**Focus areas**: regulatory compliance, contractual terms (payment, liability,
+termination), legal obligations (indemnification, warranty), dispute resolution,
+liquidated damages, insurance/bonding.
 
-**System Prompt**: Expert construction contract lawyer with focus on EPC contracts
+**System prompt**: expert construction contract lawyer, EPC focus
+(`python/agents/prompts.py::LEGAL_AGENT_SYSTEM_PROMPT`).
+
+⚠️ `overall_assessment` must **lead** with the rating word — the risk agent
+reads the rating from the front of the string (`hasRatingWord` / `_leading_rating`)
+rather than substring-matching, to avoid false positives from words like "RED"
+inside "REDUCED".
 
 ---
 
-### Engineering Agent (`engineering-agent.ts`)
+### Engineering Agent
 
-**Input**: Technical documents (specs, drawings, scope)  
-**Output**: EngineeringAssessment
+**Input**: technical scope/specification content
+**Output**: `EngineeringAssessment`
 
 ```typescript
 {
-  scope_analysis: string[];       // Scope clarity & completeness
-  structural_concerns: string[];  // Technical issues identified
-  timeline_estimate: string;      // Duration and critical path
-  feasibility: string;            // HIGH/MEDIUM/LOW rating
-  site_requirements?: string[];   // Site needs and logistics
-  citations_valid: boolean;
-  provider_used: string;
+  scope_analysis: string[];
+  structural_concerns: string[];
+  timeline_estimate: string;
+  feasibility: string;            // Leads with HIGH / MEDIUM / LOW
+  site_requirements?: string[];
+  citations_valid?: boolean;
+  provider_used?: string;
 }
 ```
 
-**Focus Areas**:
-- Project scope clarity
-- Technical feasibility and complexity
-- Realistic schedule estimation
-- Site and logistics requirements
-- Structural and design concerns
-
-**System Prompt**: Expert construction engineer specializing in EPC feasibility
+**Focus areas**: scope clarity, technical feasibility, schedule realism, site and
+logistics requirements, structural and design concerns.
 
 ---
 
-### Accounting Agent (`accounting-agent.ts`)
+### Accounting Agent
 
-**Input**: Financial documents, BOQs, payment terms  
-**Output**: AccountingAssessment
+**Input**: cost/payment/financial-qualification content
+**Output**: `AccountingAssessment`
 
 ```typescript
 {
-  cost_analysis: string[];               // Cost breakdown
-  payment_terms: string[];               // Payment schedule & terms
-  qualification_requirements: string[];  // Financial qualifications needed
-  cash_flow_analysis: string;            // Working capital implications
-  citations_valid: boolean;
-  provider_used: string;
+  cost_analysis: string[];
+  payment_terms: string[];
+  qualification_requirements: string[];
+  cash_flow_analysis: string;
+  total_estimated_cost?: number;
+  citations_valid?: boolean;
+  provider_used?: string;
 }
 ```
 
-**Focus Areas**:
-- Cost estimation and breakdown
-- Payment terms and cash flow timing
-- Financial qualifications needed
-- Retention and performance security
-- Budget contingency analysis
+**Focus areas**: cost estimation, payment terms and cash-flow timing, financial
+qualification requirements, retention and performance security, contingency.
 
-**System Prompt**: Expert construction accountant specializing in EPC cost analysis
+Note: unlike legal and engineering, the accounting assessment carries **no
+explicit rating field**, which affects how it is scored (see below).
 
 ---
 
-### Risk Agent (`risk-agent.ts`)
+### Risk Agent (deterministic)
 
-**Input**: Results from all three LLM-based agents  
-**Output**: RiskAssessment
+**Input**: the three assessments above
+**Output**: `RiskAssessment`
 
 ```typescript
 {
-  risk_score: number;  // 0.0 (no risk) to 1.0 (max risk)
-  risk_level: 'LOW' | 'MEDIUM' | 'HIGH';
+  risk_score: number | null;   // 0.0-1.0; null when bid_decision is MANUAL_REVIEW
+  risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'UNKNOWN';
   risk_factors: string[];
   mitigation_strategies: string[];
-  recommendation: 'PROCEED' | 'PROCEED_WITH_CAUTION' | 'DO_NOT_PROCEED';
+  recommendation: 'PROCEED' | 'PROCEED_WITH_CAUTION' | 'DO_NOT_PROCEED'
+                | 'MANUAL_REVIEW_REQUIRED';
   recommendation_rationale: string;
   aggregated_findings: string;
+  contract_summary: string;
+  bid_decision: 'YES' | 'NO' | 'MANUAL_REVIEW';
 }
 ```
 
-**Focus Areas**:
-- Weighted aggregation of all findings
-- Risk scoring algorithm (Legal 40%, Engineering 35%, Accounting 25%)
-- Mitigation strategy generation
-- Final bid recommendation
+**Makes no LLM call.** It purely aggregates.
 
-**Important**: Risk Agent is **deterministic** (no LLM call) - purely aggregates other agents' findings
+If any upstream agent failed, the risk agent returns the manual-review result:
+`recommendation: 'MANUAL_REVIEW_REQUIRED'`, `bid_decision: 'MANUAL_REVIEW'`,
+`risk_score: null`, `risk_level: 'UNKNOWN'` — it does not score a partial run.
 
----
-
-## 🧪 Testing
-
-### Test 1: Individual Agent Testing
-
-Each agent has a sample test (can be run separately):
-
-```bash
-npx ts-node test-legal-agent.ts
-```
-
-Shows:
-- Agent output for a sample contract
-- LLM provider used
-- Citation validation
-- Processing time
-
-### Test 2: Reference Tender Test (End-to-End)
-
-Complete tender simulation:
-
-```bash
-npx ts-node test-reference-tender.ts
-```
-
-Tests all agents together on EBTSL 7187-EBTSL-0001 tender:
-- Document classification
-- Parallel agent execution
-- Risk aggregation
-- Final recommendation
-- Performance metrics
-
-**Expected Output**:
-- Risk Level: MEDIUM (realistic for industrial EPC)
-- Recommendation: PROCEED_WITH_CAUTION
-- Key Issues: Experience qualification gaps (mitigated with JV)
-- LD Cap: 5% (per tender)
-
----
-
-## 🔄 Complete Analysis Flow
-
-### Step-by-Step Process
-
-```
-1. Document Received
-   └─ Upload PDF/Text → Extract Content
-
-2. Classification
-   └─ Determine type (CONTRACT, BOQ, SPEC, DRAWING, ADDENDUM)
-
-3. Legal Analysis
-   ├─ Inject memory context
-   ├─ Call LLM (with fallback)
-   ├─ Parse structured response
-   ├─ Validate 100% citations
-   └─ Save learnings to memory
-
-4. Engineering Analysis
-   ├─ Inject memory context
-   ├─ Call LLM (with fallback)
-   ├─ Extract feasibility assessment
-   ├─ Validate citations
-   └─ Save learnings to memory
-
-5. Accounting Analysis
-   ├─ Inject memory context
-   ├─ Call LLM (with fallback)
-   ├─ Extract cost and payment analysis
-   ├─ Validate citations
-   └─ Save learnings to memory
-
-6. Risk Aggregation
-   ├─ Score all findings
-   ├─ Rank risk factors by severity
-   ├─ Generate mitigation strategies
-   ├─ Determine recommendation
-   └─ Generate rationale
-
-7. Store Results
-   ├─ Save to database
-   ├─ Save to memory system
-   └─ Return to user
-```
+`bid_decision` is forced to `NO` whenever `recommendation` is `DO_NOT_PROCEED`,
+so the two can never contradict each other.
 
 ---
 
 ## 📊 Risk Scoring Algorithm
 
-### Risk Score Calculation
+Identical in `lib/agents/risk-agent.ts` and `python/agents/risk.py`.
+
+### Severity ratings drive the score, counts only modify it
+
+Each agent's own qualitative rating carries **65%** of its component; the number
+of items it listed carries **35%**. Counting alone was found to cluster nearly
+every document around 0.55-0.70 regardless of content, because agents list terms
+(indemnity cap, warranty, LDs, retention) whether or not those terms are
+unfavourable.
+
+```
+ratingToScore(legal.overall_assessment):       RED → 0.9,  GREEN → 0.15,  else 0.5
+feasibilityToScore(engineering.feasibility):   LOW → 0.9,  HIGH  → 0.15,  else 0.5
+
+countFactor(n, cap) = min(n / cap, 1.0)
+
+legal_component       = ratingToScore(...)      * 0.65 + countFactor(legal_risks, 12) * 0.35
+engineering_component = feasibilityToScore(...) * 0.65 + countFactor(eng_risks, 10)   * 0.35
+accounting_component  = countFactor(acct_risks, 10)        // count-based: no rating field
+
+risk_score = legal_component       * 0.40
+           + engineering_component * 0.35
+           + accounting_component  * 0.25
+```
+
+Note the two different weight layers: **0.65/0.35** is rating-vs-count *within*
+legal and engineering; **0.40/0.35/0.25** is the weighting *across* the three
+domains.
+
+### Risk level
+
+```
+score <  0.33  → LOW
+score <  0.67  → MEDIUM
+score >= 0.67  → HIGH
+```
+
+### Recommendation logic
+
+Evaluated in this order — the first match wins:
+
+```
+legal risk count      > 8   → DO_NOT_PROCEED
+engineering risk count > 7  → DO_NOT_PROCEED
+risk_level == HIGH          → DO_NOT_PROCEED
+risk_level == MEDIUM        → PROCEED_WITH_CAUTION
+otherwise                   → PROCEED
+```
+
+A MEDIUM risk level always yields `PROCEED_WITH_CAUTION`; there is no
+issue-count escalation from MEDIUM to `DO_NOT_PROCEED`.
+
+---
+
+## 💵 Pricing Engine (`lib/pricing-engine.ts`, `python/app/pricing_engine.py`)
+
+Purely deterministic math — **no LLM calls**, per the PRD's "no LLM for math"
+decision. Two entry points on the TypeScript side:
+
+- `calculatePricing(inputs)` — pass explicit numbers, get a full `PricingBreakdown`.
+- `calculatePricingFromDocument(documentText)` — regex-extracts contract value,
+  LD rate/cap, performance security %, and retention % from the source document,
+  falling back to `DEFAULT_PRICING_PARAMETERS` for anything not stated. Every
+  fallback is recorded in `assumptions_used` for auditability.
+
+**Calculations**:
+```
+material_cost + labor_cost → base_cost
+contingency_amount         = base_cost * contingency_%
+total_estimated_cost       = base_cost + contingency_amount
+recommended_bid_price      = total_estimated_cost * (1 + target_margin_%)
+
+ld_exposure_per_week       = contract_value * ld_rate_per_week_%
+ld_cap_amount              = contract_value * ld_cap_%
+weeks_to_reach_cap         = ceil(ld_cap_amount / ld_exposure_per_week)
+
+performance_security_amount = contract_value * performance_security_%
+retention_per_invoice       = (contract_value / invoices_count) * retention_rate_%
+total_retention_held        = min(retention_per_invoice * invoices_count,
+                                  contract_value * retention_cap_%)
+
+total_lockup = performance_security_amount + total_retention_held
+```
+
+**Defaults** (`DEFAULT_PRICING_PARAMETERS`, used only when the document doesn't
+state a value):
+
+| Parameter | Default |
+|---|---|
+| LD cap | 10% of contract value |
+| Performance security | 10% of contract value |
+| Retention per invoice | 10% of invoice amount |
+| Retention cap | 5% of contract value |
+| Contingency | 10% |
+| Target margin | 15% |
+| Invoices count | 12 |
+
+**Rounding**: per-invoice retention is computed on **unrounded** values and
+rounded once for the returned totals. Rounding each installment before summing
+across 12 invoices left the total $0.04 short of the cap.
+
+---
+
+## 🔑 Key Features
+
+### 1. LLM integration
+
+**Python** (`python/models/factory.py`) — `get_model(provider, model)` returns a
+LangChain `BaseChatModel`. Supported: `openai`, `google`, `anthropic`,
+`openrouter`, `moonshot`. OpenRouter and Moonshot are OpenAI-compatible and reuse
+`langchain-openai`.
+
+Model resolution order per agent (`python/graph/pipeline.py::_resolve_model`):
+1. Explicit per-agent override (set via `/api/admin/models`)
+2. Request-level provider/model
+3. `DEFAULT_LLM_PROVIDER` env var (defaults to `anthropic`)
+
+**TypeScript** (`lib/llm/`) — `callLLM()` with automatic failover:
 
 ```typescript
-// Weighted by severity
-Legal Risks:        40% weight
-Engineering Risks:  35% weight
-Accounting Risks:   25% weight
-
-risk_score = (legal_count / max * 0.4) + 
-             (eng_count / max * 0.35) + 
-             (acct_count / max * 0.25)
+const response = await callLLM({
+  system_prompt: enrichedPrompt,
+  user_message: documentText,
+  max_tokens: 2048,
+  temperature: 0.7,
+  timeout_ms: 30000,
+  retry_count: 2,
+});
 ```
 
-### Risk Level Classification
+Default provider is **OpenRouter** (`google/gemini-2.0-flash-001`). Credentials
+for every configured provider are loaded, so any provider with a key set is
+available as a failover target.
+
+### 2. Agent tools (Python only)
+
+Built by `python/agents/nodes.py::_tools_for`:
+
+- **`get_company_context`** — always offered. On-demand lookup of curated
+  policies and standards uploaded by an admin via the Company Context page.
+- **`extract_document_text`** — offered **only** when the agent has no routed
+  text in its prompt. Offering it when the content is already in the prompt led
+  models to call it anyway with hallucinated document IDs, raising
+  `FileNotFoundError` and failing the whole agent run.
+
+Both are domain-scoped, so each agent's tool returns only its own slice.
+
+### 3. Company knowledge (Python only)
+
+`python/app/knowledge.py` embeds each completed assessment and indexes it in
+pgvector. On a later analysis, `retrieve_domain_context()` pulls the most similar
+chunks from **other** bids and injects them into the agent's system prompt.
+
+### 4. Agent memory (both pipelines)
+
+File-based, persisted to `memory/agents/*.json` (gitignored). **Both pipelines
+share the same on-disk store** — `python/app/memory.py` is a port of
+`lib/memory/manager.ts` + `injector.ts` pointing at the same repo-root directory.
+
+```typescript
+const enrichedPrompt = await injector.injectMemoryContext(basePrompt, 'legal', documentText);
+// ... call LLM ...
+await injector.extractAndSaveMemory('legal', llmResponse.content, bidId, docType);
+```
+
+In the Python pipeline each agent applies **both** layers, in order
+(`agents/nodes.py`): `inject_memory_context()` first, then `_inject_knowledge()`
+for pgvector retrieval.
+
+### 5. Citation validation
+
+All LLM agents are prompted to cite every extracted fact.
 
 ```
-score < 0.33  → LOW    (Green flag)
-0.33-0.67    → MEDIUM  (Caution)
-score > 0.67 → HIGH    (Red flag)
+[page:N, section:NAME]   ← Full citation
+[page N, NAME]           ← Simplified format
+[pN, NAME]               ← Very short format
+[page N]                 ← Page only
 ```
 
-### Recommendation Logic
+Examples:
+```
+"Payment is due within 30 days [page:5, section:2.2]"
+"Retention is 5% holdback [page:2]"
+"Warranty period: 12 months [p8, Clause 5.2]"
+```
 
-```
-HIGH Risk + >8 legal issues     → DO_NOT_PROCEED
-HIGH Risk + >7 eng issues       → DO_NOT_PROCEED
-HIGH Risk (overall)             → DO_NOT_PROCEED
-MEDIUM Risk + >5 major issues   → DO_NOT_PROCEED
-MEDIUM Risk (manageable)        → PROCEED_WITH_CAUTION
-LOW Risk                        → PROCEED
-```
+On the TypeScript side, `validateCitations()` returns a coverage report and the
+agent sets `citations_valid`. A failed check is **logged, not thrown** — the
+assessment is still returned with `citations_valid: false`.
+
+⚠️ Citation *validation* is **not ported to Python**. The live pipeline prompts
+for citations and carries them inline in the assessment text, but performs no
+coverage check — `lib/citation-tracker.ts` has no Python equivalent. Python has
+only `strip_citation()` / `_strip_citations()` helpers for display.
+
+### 6. Error handling
+
+Each agent catches its own failures and returns a fallback assessment rather than
+propagating. The risk agent detects failed agents and returns
+`MANUAL_REVIEW_REQUIRED` instead of scoring an incomplete run.
 
 ---
 
 ## 🚀 API Integration
 
 ### POST `/api/analyze`
+
+In Next.js this is a **thin proxy** to the Python service — the request and
+response shapes are deliberately identical between the two backends so no
+translation is needed.
 
 **Request**:
 ```json
@@ -459,22 +417,19 @@ LOW Risk                        → PROCEED
 }
 ```
 
-**Response**:
+**Response** (happy path, provider calls succeeding):
 ```json
 {
   "id": "bid-123456",
   "fileName": "contract.pdf",
-  "classification": {
-    "doc_type": "CONTRACT",
-    "confidence": 0.95
-  },
+  "classification": { "doc_type": "CONTRACT", "confidence": 0.95 },
   "legalAssessment": {
     "compliance_issues": ["..."],
     "contract_terms": ["..."],
     "risks": ["..."],
     "overall_assessment": "YELLOW: ...",
     "citations_valid": true,
-    "provider_used": "tokenrouter"
+    "provider_used": "openrouter"
   },
   "engineeringAssessment": {
     "scope_analysis": ["..."],
@@ -482,7 +437,7 @@ LOW Risk                        → PROCEED
     "timeline_estimate": "24 weeks",
     "feasibility": "MEDIUM: ...",
     "citations_valid": true,
-    "provider_used": "tokenrouter"
+    "provider_used": "openrouter"
   },
   "accountingAssessment": {
     "cost_analysis": ["..."],
@@ -490,7 +445,8 @@ LOW Risk                        → PROCEED
     "qualification_requirements": ["..."],
     "cash_flow_analysis": "...",
     "citations_valid": true,
-    "provider_used": "tokenrouter"
+    "provider_used": "openrouter",
+    "total_estimated_cost": 473000
   },
   "riskAssessment": {
     "risk_score": 0.52,
@@ -498,248 +454,176 @@ LOW Risk                        → PROCEED
     "risk_factors": ["..."],
     "mitigation_strategies": ["..."],
     "recommendation": "PROCEED_WITH_CAUTION",
-    "recommendation_rationale": "..."
+    "recommendation_rationale": "...",
+    "aggregated_findings": "...",
+    "contract_summary": "...",
+    "bid_decision": "YES"
+  },
+  "pricingBreakdown": {
+    "contract_value": 12500000,
+    "ld_cap_amount": 625000,
+    "performance_security_amount": 1250000,
+    "total_retention_held": 625000,
+    "total_lockup": 1875000,
+    "assumptions_used": ["..."]
   },
   "bidRecommendation": {
-    "estimated_cost": 0,
-    "bid_margin_percentage": 15,
-    "recommended_bid_price": 0,
+    "estimated_cost": 473000,
+    "bid_margin_percentage": 15.0,
+    "recommended_bid_price": 543950,
+    "profit_amount": 70950,
+    "pricing_strategy_rationale": "...",
+    "ld_cap_amount": 625000,
+    "performance_security_amount": 1250000,
+    "total_lockup": 1875000,
     "risk_level": "MEDIUM",
     "recommendation": "PROCEED_WITH_CAUTION",
-    "confidence_score": "0.68"
+    "recommendation_rationale": "...",
+    "bid_decision": "YES",
+    "confidence_score": 0.68,
+    "agent_timings_ms": { "orchestrator_ms": 850, "legal_ms": 6200, "engineering_ms": 5900, "accounting_ms": 6400, "risk_ms": 1 }
   }
 }
 ```
 
+`pricingBreakdown` (`lib/pricing-engine.ts` / `python/app/pricing_engine.py`) has
+more fields than shown — see the **Pricing Engine** section above for the full
+`PricingBreakdown` shape. `accountingAssessment` gains
+`material_costs`, `labor_costs`, `contingency_percentage`, and
+`boq_breakdown[]` (Python only) whenever the LLM's own assessment doesn't
+produce a `total_estimated_cost` — filled in server-side from the admin BOQ
+defaults (`GET/POST /api/admin/boq`) rather than left empty.
+
+**Verified response** (2026-08-23, no LLM key configured — this is the actual
+failure path, run for real against a local Postgres): every domain agent
+failed at the provider-call step (`"provider_used": "error"`), and the risk
+agent correctly detected this and returned
+`"bid_decision": "MANUAL_REVIEW"`, `"recommendation": "MANUAL_REVIEW_REQUIRED"`,
+`"risk_score": null`, `"risk_level": "UNKNOWN"`, with `bidRecommendation`'s
+`recommended_bid_price` and `confidence_score` both `null` rather than a
+number that would look real but isn't. The result still persisted to Postgres
+with a real UUID and appeared on a subsequent `GET /api/bids`. This confirms
+the manual-review path in the **Risk Agent (deterministic)** section above is
+not just documented but actually wired up end-to-end.
+
 ---
 
-## 🔍 Citation Format
+## 🧪 Testing
 
-All agents enforce proper citations:
+The root `test-*.ts` scripts exercise the **TypeScript** pipeline only — they do
+not test the live Python path.
 
+There is no `test` script in `package.json` and neither `ts-node` nor `tsx` is a
+declared dependency, so run them ad hoc with `npx`:
+
+Verified locally on 2026-08-23: `test-pricing-engine.ts` passes all 22
+assertions, and `npm run build` completes with zero TypeScript errors. The
+TS agent scripts below were not run — they need live provider credentials.
+
+Separately, the **live Python pipeline was run for real** against a local
+Postgres (`scripts/local-postgres.sh`, no API key set) — see
+[§ API Integration](#-api-integration) above for what that confirmed.
+
+```bash
+npx tsx test-pricing-engine.ts       # 22 assertions, pure math, no API keys needed
+npx tsx test-legal-agent.ts          # single agent, needs an LLM key
+npx tsx test-reference-tender.ts     # end-to-end, EBTSL 7187
+npx tsx test-tender-strong-bid.ts    # expects LOW risk / PROCEED
+npx tsx test-tender-moderate-risk.ts # expects MEDIUM risk / PROCEED_WITH_CAUTION
+npx tsx test-tender-high-risk.ts     # expects HIGH risk / DO_NOT_PROCEED
 ```
-[page:N, section:NAME]   ← Full citation
-[page N, NAME]           ← Simplified format
-[pN, NAME]               ← Very short format
-[page N]                 ← Page only
-```
 
-**Example**:
-```
-"Payment is due within 30 days [page:5, section:2.2]"
-"Retention is 5% holdback [page:2]"
-"Warranty period: 12 months [p8, Clause 5.2]"
-```
+`lib/test-utils/run-tender-scenario.ts` is the shared harness for the three
+scenario scripts.
 
----
+**Reference tender (EBTSL 7187-EBTSL-0001)** — $12.5M contract, 0.5%/week LD
+capped at 5%, 10% performance security, 5% retention. Expected:
 
-## 💾 Memory System Integration
-
-### How Agents Learn
-
-1. **Extract** - After LLM response, extract key learnings
-2. **Save** - Store as memory for this agent type
-3. **Tag** - Auto-generate tags (legal, engineering, etc.)
-4. **Inject** - Next analysis injects top 5 relevant memories
-
-### Memory Decay
-
-- Recently used memories ranked higher
-- Old, unused memories are deprioritized
-- Memories are tagged by document type for relevance
-
-### Memory Storage
-
-```
-memory/agents/
-├── mem_legal_001.json
-├── mem_legal_002.json
-├── mem_engineering_001.json
-├── mem_accounting_001.json
-└── mem_risk_001.json
-```
+- Risk level: MEDIUM
+- Recommendation: PROCEED_WITH_CAUTION
+- Key issue: experience qualification gap, mitigable via JV
 
 ---
 
 ## ⚙️ Configuration
 
-### Environment Variables
+### Python (live pipeline)
 
 ```bash
-# LLM Provider
-LLM_PROVIDER=tokenrouter
+DATABASE_URL=postgresql://...      # required; needs the pgvector extension
+DEFAULT_LLM_PROVIDER=anthropic     # default when an agent has no override
 
-# TokenRouter (Primary)
-TOKENROUTER_API_KEY=sk_...
-TOKENROUTER_ENDPOINT=https://api.tokenrouter.com/v1
+OPENAI_API_KEY     / OPENAI_DEFAULT_MODEL
+GOOGLE_API_KEY     / GOOGLE_DEFAULT_MODEL
+ANTHROPIC_API_KEY  / ANTHROPIC_DEFAULT_MODEL
+OPENROUTER_API_KEY / OPENROUTER_DEFAULT_MODEL
+MOONSHOT_API_KEY   / MOONSHOT_DEFAULT_MODEL
 
-# Anthropic (Fallback)
-ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_EMBEDDING_MODEL
+OPENROUTER_EMBEDDING_MODEL
 
-# Timeouts
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=...
+LANGCHAIN_PROJECT=tendermind
+```
+
+### TypeScript (legacy pipeline)
+
+```bash
+LLM_PROVIDER=openrouter            # default; also "tokenrouter" or "anthropic"
+
+OPENROUTER_API_KEY=...
+OPENROUTER_ENDPOINT=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=google/gemini-2.0-flash-001
+
+TOKENROUTER_API_KEY=...
+ANTHROPIC_API_KEY=...
+
 LLM_TIMEOUT_MS=30000
 LLM_MAX_RETRIES=2
+PYTHON_BACKEND_URL=http://localhost:8000
 ```
 
-### Agent Tuning (in each agent file)
+Authoritative list: `ENV_VAR_DOCS` in `lib/llm/config.ts`.
 
-```typescript
-// System prompt
-const AGENT_SYSTEM_PROMPT = `...`
+### Agent tuning
 
-// LLM parameters
-const response = await callLLM({
-  max_tokens: 2048,      // Adjust output length
-  temperature: 0.7,      // 0=deterministic, 1=creative
-  timeout_ms: 30000,     // Increase for large docs
-  retry_count: 2,        // Retry count on failure
-});
-```
-
----
-
-## 📈 Performance Metrics
-
-### Benchmarks
-
-| Operation | Target | Actual | Status |
-|-----------|--------|--------|--------|
-| Legal analysis | <10s | ~8-10s | ✅ |
-| Engineering analysis | <10s | ~8-10s | ✅ |
-| Accounting analysis | <10s | ~8-10s | ✅ |
-| Risk aggregation | <1s | ~0.5s | ✅ |
-| Total end-to-end | <40s | ~30-35s | ✅ |
-| Citation validation | <1s | ~0.5s | ✅ |
-| Memory search | <200ms | ~100-150ms | ✅ |
-
-### Optimization Tips
-
-1. **Reduce document length** - Truncate to essential text
-2. **Cache results** - Same document analyzed twice → use cache
-3. **Parallel execution** - All 3 LLM agents can run in parallel
-4. **Batch analysis** - Process multiple documents together
+- **Python prompts**: `python/agents/prompts.py`
+- **TypeScript prompts**: the `*_SYSTEM_PROMPT` constant at the top of each
+  `lib/agents/*.ts` file
+- **Per-agent model**: the `/admin/models` page, or `POST /api/admin/models`
 
 ---
 
 ## 🛠️ Troubleshooting
 
-### Common Issues
-
 | Issue | Cause | Fix |
 |-------|-------|-----|
+| "Failed to reach analysis backend" | Python server not running | `uvicorn app.main:app --port 8000` |
 | "No LLM provider configured" | Missing API keys | Add to `.env.local` |
-| "Citations incomplete" | LLM didn't include citations | Retry with different temperature |
-| "Memory not persisting" | Directory permissions | `chmod 755 memory/agents/` |
-| "Timeout error" | Document too large | Truncate or increase timeout |
-| "Parse error" | LLM response format | Check LLM output, adjust prompt |
+| `getLLMConfig()` throws on start | Selected `LLM_PROVIDER` has no key | Set that key or change the provider |
+| `FileNotFoundError` in an agent run | Model called `extract_document_text` with a bad id | Check `_tools_for` gating in `agents/nodes.py` |
+| Everything scores 0.55-0.70 | Agents not leading with a rating word | Assessments must start with GREEN/YELLOW/RED or HIGH/MEDIUM/LOW |
+| `MANUAL_REVIEW_REQUIRED` returned | One or more agents failed | Check logs for the failing agent |
+| "Citations incomplete" | LLM omitted citations | Lower temperature, or tighten the prompt |
+| "Memory not persisting" (TS only) | Directory permissions | `chmod 755 memory/agents/` |
+| "PDF contained no extractable text" | Scanned PDF, no text layer | OCR first - the extractor does not OCR |
 
-### Debug Mode
+### Tracing
 
-Enable detailed logging:
-
-```typescript
-// In any agent file
-console.log('[Agent Name] Step description'); // Already included
-```
-
-Check server logs:
+With `LANGCHAIN_TRACING_V2=true` and a `LANGCHAIN_API_KEY`, every node run is
+traced to LangSmith (`python/agents/tracing.py`). Confirm it is on:
 
 ```bash
-npm run dev    # Run dev server to see logs
+curl http://localhost:8000/api/health
+# → {"status":"ok","tracing_enabled":true}
 ```
 
 ---
 
-## 🎓 Implementation Summary
+## 📚 Related Documentation
 
-### What Was Built
-
-✅ **Legal Agent** (11 KB)
-- Contract compliance analysis
-- Risk identification
-- Term extraction
-- 100% citation validation
-
-✅ **Engineering Agent** (11 KB)
-- Feasibility assessment
-- Scope analysis
-- Timeline estimation
-- Technical concern identification
-
-✅ **Accounting Agent** (10 KB)
-- Cost analysis
-- Payment terms extraction
-- Qualification requirements
-- Cash flow implications
-
-✅ **Risk Agent** (12 KB)
-- Deterministic aggregation
-- Weighted risk scoring
-- Mitigation generation
-- Final recommendation
-
-✅ **Reference Testing**
-- End-to-end validation
-- EBTSL 7187 tender simulation
-- Performance metrics
-- Expected output verification
-
-### Total Implementation
-
-- **Code**: ~44 KB of production-ready TypeScript
-- **Time**: ~8-10 hours
-- **Build Status**: ✅ Zero TypeScript errors
-- **Test Status**: ✅ All agents tested
-- **Production Ready**: ✅ Yes
-
----
-
-## 📚 Next Steps (Phase 3 & Beyond)
-
-### Phase 3: Pricing Engine (~6-8 hours)
-
-Deterministic calculations for:
-- LD (Liquidated Damages) caps
-- Performance security requirements
-- Retention and cash flow impacts
-- Total lockup analysis
-
-```typescript
-// Example pricing calculation
-const ld_exposure = contract_value * 0.01 * weeks_delay; // 1% per week
-const ld_cap = Math.min(ld_exposure, contract_value * 0.10); // Capped at 10%
-
-const performance_security = contract_value * 0.10;
-const retention = Math.min(invoice_amount * 0.10, contract_value * 0.05);
-const total_lockup = performance_security + retention;
-```
-
-### Phase 4: Reference Tender Testing (~4-6 hours)
-
-- Full validation with EBTSL 7187
-- Verify recommendation logic
-- Performance optimization
-- Final system integration
-
----
-
-## ✨ Key Achievements
-
-| Metric | Target | Achieved |
-|--------|--------|----------|
-| Agent Coverage | 4 agents | ✅ 4 agents |
-| Citation Compliance | 100% | ✅ 100% enforced |
-| LLM Integration | Fallover | ✅ TokenRouter + Anthropic |
-| Memory Learning | Per-agent | ✅ Implemented |
-| Error Handling | Graceful | ✅ All cases covered |
-| TypeScript Safety | Strict | ✅ Zero errors |
-| Production Ready | Yes | ✅ Ready |
-
----
-
-**Status**: ✅ **PHASE 2 COMPLETE - READY FOR PHASE 3**
-
-Last Updated: 2024-08-22  
-Implementation Time: ~8-10 hours  
-Next Milestone: Pricing Engine
-
+- [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) - migration state, remaining work
+- [LEGAL_AGENT_GUIDE.md](./LEGAL_AGENT_GUIDE.md) - legal agent detail
+- [MEMORY_SYSTEM_GUIDE.md](./MEMORY_SYSTEM_GUIDE.md) - TypeScript agent memory
+- [python/README.md](./python/README.md) - Python backend

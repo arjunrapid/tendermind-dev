@@ -1,8 +1,51 @@
 # Tender Assistant — Project Charter & Technical Starter
 
-**Status:** Draft v0.1 — for team review
+**Status:** Charter v0.1 — partially implemented. This document describes the
+*intended* design, not the current build. See
+[§0 Implementation Status](#0-implementation-status) for what actually exists.
 **Owners:** 4 contributors (see [Work Breakdown](#work-breakdown))
-**Last updated:** _fill in_
+**Last updated:** 2026-08-22
+
+---
+
+## 0. Implementation Status
+
+This charter predates the build. Read it as design intent, and read
+[IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) and
+[AGENTS_COMPLETE_GUIDE.md](./AGENTS_COMPLETE_GUIDE.md) for the current system.
+
+**Built as designed:**
+
+| Charter section | Status |
+|---|---|
+| §4 DAG shape — orchestrator → legal/civil/accounting in parallel → risk last | ✅ `python/graph/pipeline.py` |
+| §3.3 LLM extracts, deterministic code computes | ✅ `pricing_engine`, `risk_agent` — both LLM-free |
+| §3.2 Every finding carries a citation | ⚠️ Weakest link. Citations are required by prompt and carried inline, but **the live Python pipeline never verifies coverage** — `lib/citation-tracker.ts` was not ported. The legacy TS agents do check, and even there a failure is logged, not enforced by dropping the finding. The charter's "unsourced finding is treated as a hallucination and dropped" rule is not implemented anywhere |
+| §4.2 Postgres + pgvector, FastAPI backend | ✅ |
+| §5 Four consultant agents | ✅ All four exist |
+
+**Not yet built — the charter describes these but the code does not implement them:**
+
+| Charter item | Reality |
+|---|---|
+| §3.1 Versioned output schemas (`schema_version`) | No schema versioning anywhere |
+| §3.4 `confidence` and `unknowns[]` on every agent output | Not implemented. Agents emit plain `string[]` lists; there is no abstention mechanism |
+| §5.1 Legal `findings[]` with `id`, `severity`, `clause_type`, `blocking_issues[]` | Actual shape is `{compliance_issues[], contract_terms[], risks[], overall_assessment}` |
+| §5.2 `capability_gaps[]`, `information_requests[]` (RFIs) | Not implemented. The RFI output the charter calls "one of the most valuable things this app can produce" does not exist |
+| §5.3 Cost library, `recommended_bid_range{low,target,high}`, `cash_flow_profile` | Pricing engine uses fixed default percentages, not a bidder cost library |
+| §5.4 `overall_risk_pct`, `risk_register[]` with likelihood/impact, `recommended_contingency_pct` | Actual risk output is `{risk_score, risk_level, risk_factors[], mitigation_strategies[], recommendation, bid_decision, ...}`. Contingency and margin are **fixed defaults in the pricing engine**, not risk-agent outputs — so the charter's "how the risk score turns into money" coupling (§5.3) is not wired up |
+| §3.5 Review queue, finding accept/edit/dismiss, overrides as training signal | Not implemented |
+| §6 Bid history & calibration (outcomes, hit rates, estimate drift) | Not implemented. Bids are stored, outcomes are not |
+| §4.2 Queue (Celery/RQ + Redis), async from day one | Not implemented — `/api/analyze` runs the pipeline synchronously in the request |
+| §4.1 OCR fallback for scanned sheets | Not implemented — scanned PDFs without a text layer are rejected outright |
+| §4.2 `pymupdf`, S3 object store | Uses `pypdf` (Python) / `pdf-parse` (TS); Vercel Blob for storage |
+| Appendix A repository layout | Diverged — see the structure in [README.md](./README.md) |
+| §7 Four-person work breakdown | Historical. Not a description of who works on what now |
+
+**Open questions in §10 that remain open:** Q1 (`overall_risk_pct` definition —
+note the implemented `risk_score` is a 0-1 composite index, which answers Q1 by
+default rather than by decision) and Q2 (cost library source) are both still
+unresolved and still blocking the features above.
 
 ---
 

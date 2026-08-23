@@ -1,0 +1,72 @@
+name: Python CI
+
+on:
+  push:
+    paths:
+      - 'python/**'
+      - '.github/workflows/python-ci.yml'
+  pull_request:
+    paths:
+      - 'python/**'
+      - '.github/workflows/python-ci.yml'
+
+jobs:
+  lint-and-type:
+    name: Lint & type-check (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        # No types-bcrypt stub package exists on PyPI (bcrypt ships its own
+        # inline types), so requesting it made this step fail before any
+        # linting ran.
+        run: pip install -r requirements.txt ruff mypy
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: mypy type-check
+        # Run mypy only on the app and agents packages (not the generated
+        # deep-agent stubs which have incomplete type info).
+        run: mypy app agents --ignore-missing-imports --no-strict-optional
+
+  test:
+    name: Unit tests (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+    # Tests that need the DB or LLM keys are skipped when those env vars are
+    # absent - they are integration tests that need secrets.
+    env:
+      JWT_SECRET: ci-test-secret-not-for-production
+      DATABASE_URL: ''
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest pytest-asyncio
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short -x

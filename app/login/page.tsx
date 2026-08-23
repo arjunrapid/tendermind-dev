@@ -5,58 +5,30 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { Btn, MarketingShell, MicroLabel } from '@/components/ui';
 
-const SAMPLE_ACCOUNTS = [
-  { username: 'tmadmin', password: 'tmadmin123', label: 'Admin — sees the Admin section' },
-  { username: 'tmanalyst', password: 'tmanalyst123', label: 'Analyst — Admin section hidden' },
-];
-
-const NEXT_STEPS = [
-  {
-    step: '01',
-    title: 'Upload a tender',
-    body: 'Drop in a contract, specification or bill of quantities. Text is extracted and the document is classified automatically.',
-  },
-  {
-    step: '02',
-    title: 'Four agents review it',
-    body: 'Legal, engineering and commercial assessments run together, then risk aggregates them into one decision.',
-  },
-  {
-    step: '03',
-    title: 'Decide with the evidence',
-    body: 'You get a bid / no-bid recommendation, a target price with its margin, and the specific factors behind both.',
-  },
-];
-
 export default function LoginPage() {
   const router = useRouter();
   const { user, isLoading, login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!isLoading && user) router.replace('/');
   }, [isLoading, user, router]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (login(username, password)) {
+    setIsSubmitting(true);
+    const result = await login(username, password);
+    setIsSubmitting(false);
+    if (result.ok) {
       router.replace('/');
     } else {
-      setError('Invalid username or password.');
+      setError(result.error || 'Invalid username or password.');
     }
   };
-
-  const fillSample = (account: (typeof SAMPLE_ACCOUNTS)[number]) => {
-    setUsername(account.username);
-    setPassword(account.password);
-    setError(null);
-  };
-
-  const inputClass =
-    'w-full bg-panel border border-line px-3.5 py-2.5 text-[14px] text-ink outline-none focus:border-line-strong';
 
   return (
     <MarketingShell ctaHref="/welcome" ctaLabel="Back to site">
@@ -99,49 +71,15 @@ export default function LoginPage() {
 
               {error ? <p className="text-[13px] text-danger">{error}</p> : null}
 
-              <Btn type="submit" variant="accent" className="w-full">
-                Sign in
-              </Btn>
-            </form>
-
-            <div className="mt-10 border-t border-line pt-6">
-              <MicroLabel className="mb-4">Demo accounts</MicroLabel>
-              <div className="border border-line">
-                {SAMPLE_ACCOUNTS.map((account, i) => (
-                  <button
-                    key={account.username}
-                    type="button"
-                    onClick={() => fillSample(account)}
-                    className={`w-full text-left px-4 py-3.5 hover:bg-ink-08 transition-colors ${
-                      i > 0 ? 'border-t border-line' : ''
-                    }`}
-                  >
-                    <div className="font-mono text-[13px]">
-                      {account.username} / {account.password}
-                    </div>
-                    <div className="text-[11.5px] text-ink-45 mt-1">{account.label}</div>
-                  </button>
-                ))}
-              </div>
-              <p className="mt-3 text-[11.5px] text-ink-45">Click an account to fill the form.</p>
-            </div>
-          </div>
-
-          {/* What happens next */}
-          <aside>
-            <MicroLabel className="mb-4">What happens next</MicroLabel>
-            <div className="grid gap-px bg-line border border-line">
-              {NEXT_STEPS.map((s) => (
-                <div key={s.step} className="bg-panel px-5 py-5">
-                  <div className="font-mono text-[11px] text-accent">{s.step}</div>
-                  <div className="text-[14px] font-semibold mt-2">{s.title}</div>
-                  <p className="text-[12.5px] leading-[1.6] text-ink-60 mt-2">{s.body}</p>
-                </div>
-              ))}
-            </div>
-          </aside>
-        </div>
-      </section>
-    </MarketingShell>
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      </div>
+    </main>
   );
 }

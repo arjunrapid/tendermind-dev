@@ -1,173 +1,215 @@
-# Construction Bid Analyzer - Deployment Guide
+# Tendermind - Deployment Guide
+
+> ⚠️ **Deployment is not a solved problem for this project yet.** The app is
+> split across two runtimes: a Next.js frontend and a Python/FastAPI analysis
+> backend. Vercel hosts the Next.js half; the Python half needs a separate host.
+> There is no deployment configuration committed for the Python service.
 
 ## Local Development
 
 ### Prerequisites
 - Node.js 18+
-- npm or yarn
-- PostgreSQL (for local database) or Vercel Postgres account
+- Python 3.10+
+- Postgres with the `pgvector` extension for the **Python** backend — a real
+  local Postgres works fine here (see `scripts/local-postgres.sh` below)
+- **A real Neon or Vercel Postgres instance** for the **TypeScript** routes
+  (`upload`, `bids`, `bid/[id]`, `admin/boq`) — `lib/db.ts`'s `@vercel/postgres`
+  `sql` tag is hardcoded to Neon's HTTP proxy protocol and will not connect to
+  a self-hosted Postgres over plain TCP at all (verified: `"Error connecting
+  to database: fetch failed"`). No local-only substitute exists for this half.
 
 ### Setup
 
-1. **Install dependencies**
+1. **Install frontend dependencies**
 ```bash
 npm install
 ```
 
 2. **Set up environment variables**
-Create a `.env.local` file with your database connection:
-```
-POSTGRES_URLPGSQL="postgresql://user:password@localhost:5432/bid_analyzer"
+
+No template is committed (`.env*` is gitignored). Create `.env.local`:
+
+```env
+DATABASE_URL="postgresql://user:password@localhost:5432/bid_analyzer"
+OPENROUTER_API_KEY="..."
+PYTHON_BACKEND_URL="http://localhost:8000"
 ```
 
-3. **Run the development server**
+Authoritative variable lists: `ENV_VAR_DOCS` in `lib/llm/config.ts` and
+`python/models/factory.py`.
+
+**No Postgres available, and no Docker/Homebrew to get one?** — for the
+**Python** backend only (see the prerequisites note above):
+
+```bash
+scripts/local-postgres.sh start
+export DATABASE_URL=$(scripts/local-postgres.sh uri)
+```
+
+Runs a real Postgres 16 + pgvector via the `pgserver` PyPI package in a
+dedicated `uv`-managed venv — no sudo, no system packages. `scripts/status`,
+`stop`, and `psql` subcommands are also available; see the script's header
+comment for how it works. Verified working this session end-to-end: the
+Python backend boots against it, auto-creates all six tables, and a full
+`/api/analyze` run persists and reads back correctly.
+
+3. **Run the frontend**
 ```bash
 npm run dev
 ```
+→ `http://localhost:3000`
 
-4. **Open in browser**
-Visit `http://localhost:3000`
-
-## Deployment to Vercel (Free Tier)
-
-### Prerequisites
-- Vercel account (free)
-- GitHub account with repository
-
-### Steps
-
-1. **Push code to GitHub**
+4. **Run the Python backend** (required for `/api/analyze`)
 ```bash
-git add .
-git commit -m "Initial commit: Construction Bid Analyzer MVP"
-git push origin main
+cd python
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
 ```
+→ Swagger UI at `http://localhost:8000/docs`, health at `/api/health`
 
-2. **Connect to Vercel**
-- Go to [vercel.com](https://vercel.com)
-- Sign up or log in
-- Click "New Project"
-- Import your GitHub repository
-- Select the repository and click "Import"
+## Deploying
 
-3. **Configure Environment Variables in Vercel Dashboard**
-- In Project Settings → Environment Variables
-- Add your database connection string:
-  - Key: `POSTGRES_URLPGSQL`
-  - Value: Your Vercel Postgres connection string
+### The two-runtime problem
 
-4. **Set up Database**
-- Option A: Use Vercel Postgres (recommended for free tier)
-  - In Vercel dashboard, go to Storage → Create Database → Postgres
-  - Copy the connection string and add to environment variables
-  - The database tables will be created on first use
+| Route | Runtime | Deploys to |
+|---|---|---|
+| `POST /api/upload` | Next.js | Vercel |
+| `GET /api/bids` | Next.js | Vercel |
+| `GET/DELETE /api/bid/[id]` | Next.js | Vercel |
+| `GET/POST /api/admin/boq` | Next.js | Vercel |
+| `POST /api/analyze` | **proxy → Python** | needs a Python host |
+| `GET/POST /api/admin/models` | **proxy → Python** | needs a Python host |
+| `/api/company-context` | **proxy → Python** | needs a Python host |
 
-- Option B: Use your own PostgreSQL
-  - Ensure your database is accessible from Vercel
-  - Add connection string to environment variables
+Deploying only the Next.js app produces a site where upload and history work but
+analysis fails. `PYTHON_BACKEND_URL` must point at a reachable FastAPI instance.
 
-5. **Deploy**
-- Once environment variables are set, Vercel will automatically deploy
-- Your app will be live at `https://your-project.vercel.app`
+### 1. Next.js frontend (Vercel)
 
-## Features
+1. Push to GitHub.
+2. vercel.com → New Project → import the repository.
+3. Project Settings → Environment Variables:
+   - `DATABASE_URL` — your Postgres connection string
+   - `PYTHON_BACKEND_URL` — public URL of the deployed FastAPI service
+   - `OPENROUTER_API_KEY` (or whichever provider `LLM_PROVIDER` names)
+   - `BLOB_READ_WRITE_TOKEN` — if using Vercel Blob for uploads
+4. Deploy.
 
-### Current MVP Features
-- ✅ PDF document upload and text extraction
-- ✅ Document classification (CONTRACT, SPECIFICATION, BOQ, DRAWING, ADDENDUM)
-- ✅ Multi-agent analysis:
-  - Legal Agent
-  - Civil Engineering Agent
-  - Accounting Agent
-  - Risk Agent
-- ✅ Bid recommendation with pricing
-- ✅ Bid history tracking
-- ✅ Responsive UI with React + Tailwind CSS
+⚠️ **Function timeout.** Vercel's free tier caps serverless functions at 10s.
+A full tender analysis takes considerably longer, and `/api/analyze` holds the
+request open while the Python pipeline runs — it does not return a job id. Expect
+timeouts on the free tier. Options: a paid Vercel plan with a longer limit, or
+rework `/api/analyze` to be asynchronous (see the queue discussion in
+[TENDER_ASSISTANT.md](./TENDER_ASSISTANT.md) §4.2).
 
-### Future Enhancements
-- 🔜 Real Claude API integration for document understanding
-- 🔜 User authentication
-- 🔜 Collaborative bid review
-- 🔜 PDF annotation and markup
-- 🔜 Advanced filtering and search
-- 🔜 Export bid reports (PDF, Excel)
+### 2. Python backend (host TBD)
+
+Nothing is committed for this — no Dockerfile, no `Procfile`, no platform config.
+Any host that runs `uvicorn` works (Fly.io, Railway, Render, Cloud Run, a VM).
+The service needs:
+
+- `DATABASE_URL` reachable from the host, with `pgvector` enabled
+- `DEFAULT_LLM_PROVIDER` plus that provider's API key
+- Optionally `LANGCHAIN_TRACING_V2` / `LANGCHAIN_API_KEY` / `LANGCHAIN_PROJECT`
+- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+CORS is currently `allow_origins=["*"]` (`python/app/main.py`). **Restrict this
+before exposing the service publicly.**
+
+### 3. Database
+
+In production both runtimes talk to the same Postgres. **Locally they can't** —
+see the prerequisites note above; only the Python side can use a self-hosted
+instance.
+
+- Tables are created automatically on first use (`lib/db.ts` `initializeDatabase()`,
+  `python/app/db.py` on startup)
+- Tables (verified by actually running the Python backend against a fresh
+  database): `bids`, `extracted_clauses`, `boq_defaults`, `company_context`,
+  `agent_model_overrides`, and `knowledge_chunks` (the pgvector-backed one —
+  `embedding vector(1536)` with an `ivfflat` cosine-similarity index)
+- The `pgvector` extension must be enabled or the Python backend's knowledge
+  retrieval fails
+
+## Pre-deployment checklist
+
+- [ ] Replace the demo auth. `lib/auth.tsx` stores credentials and session in
+      client-side `localStorage` — it is not authentication and anyone can bypass
+      it. **This is a blocker for any real deployment.**
+- [ ] Restrict CORS on the FastAPI service
+- [ ] Decide the `/api/analyze` timeout story (async job, or a plan with a
+      longer function limit)
+- [ ] Confirm your LLM provider's data-retention terms — tender documents are
+      commercially sensitive (see [TENDER_ASSISTANT.md](./TENDER_ASSISTANT.md) §9)
+- [ ] Note that agent memory writes to `memory/agents/*.json` on local disk,
+      which does not persist on serverless or ephemeral-filesystem hosts
 
 ## Architecture
 
 ### Frontend
-- **Framework**: Next.js 14 (React)
-- **Styling**: Tailwind CSS
-- **State Management**: React Hooks
+- **Framework**: Next.js 16 (React 19)
+- **Styling**: Tailwind CSS 4
+- **State**: React Hooks
 
-### Backend
-- **Runtime**: Vercel Serverless Functions
-- **API Routes**: 
-  - `POST /api/upload` - File upload and text extraction
-  - `POST /api/analyze` - Document analysis orchestration
-  - `GET /api/bids` - Fetch bid history
-  - `GET /api/bid/:id` - Get bid details
+### Backends
+- **Analysis**: Python + FastAPI + LangGraph + LangSmith
+- **Everything else**: Next.js route handlers on Vercel Functions
 
 ### Database
-- **Type**: PostgreSQL (Vercel Postgres free tier)
-- **ORM**: Raw SQL with @vercel/postgres
+- **Type**: Postgres + pgvector (Neon / Vercel Postgres)
+- **Access**: raw SQL via `@vercel/postgres` (TS) and `asyncpg` (Python)
 
-### Mock Agents
-Currently using mock implementations that return templated responses based on document type. Ready for Claude API integration.
+### Storage
+- Vercel Blob for uploaded PDFs
 
 ## Free Tier Limits
 
 ### Vercel
 - **Bandwidth**: 100GB/month
-- **Functions**: 10 per project
-- **Execution Time**: 10 seconds per function
-- **Concurrent Functions**: Limited
+- **Execution time**: 10 seconds per function — see the timeout warning above
 
-### Vercel Postgres (Free Tier)
-- **Storage**: Starts at 256 MB
-- **Transactions**: 2.5M per month
-- **Backups**: 7-day retention
+### Postgres (free tiers)
+- Storage and transaction caps vary by provider; check current Neon/Vercel terms
 
-## Cost Estimation
+## Cost
 
-- **Vercel Hosting**: Free tier (no cost)
-- **Vercel Postgres**: Free tier (up to 256MB)
-- **Claude API** (optional future integration): ~$0.003 per 1K input tokens
+- **Vercel hosting**: free tier possible for the frontend
+- **Python host**: varies; a small always-on instance is the usual floor
+- **LLM calls**: the real variable cost. Depends on `DEFAULT_LLM_PROVIDER`, the
+  model chosen per agent at `/admin/models`, and document size. Four LLM calls
+  per analysis (orchestrator + three domain agents).
 
 ## Troubleshooting
 
-### Database Connection Issues
-```
-Error: "Unable to connect to database"
-```
-- Verify POSTGRES_URLPGSQL is set correctly in Vercel
-- Ensure database is accessible (check firewall/security groups)
-- Test connection string locally first
+**"Failed to reach analysis backend"**
+- The Python service is down or `PYTHON_BACKEND_URL` is wrong
 
-### File Upload Not Working
-- Check file size limits (free tier: 10MB per function)
-- Verify PDF file is valid
-- Check browser console for detailed errors
+**Python service exits on boot with `KeyError: 'DATABASE_URL'`**
+- The variable is a hard startup requirement (`python/app/db.py`), not just a
+  runtime one. The service will not accept connections without it.
 
-### Slow Performance
-- Optimize images and assets
-- Use Vercel's Analytics to identify bottlenecks
-- Upgrade database tier if needed
+**Database connection issues**
+- Verify `DATABASE_URL` in both environments
+- Confirm `pgvector` is enabled
+- Check the host's IP allowlist
+
+**Analysis times out**
+- Vercel function limit; see the timeout warning above
+
+**"PDF contained no extractable text"**
+- Scanned PDF with no text layer. There is no OCR fallback.
+
+**Agent memory disappears between requests**
+- Expected on ephemeral filesystems — `memory/agents/` is local disk
 
 ## Monitoring
 
-Monitor your deployment:
-1. Vercel Dashboard → Analytics
-2. Check function execution times
-3. Monitor database usage
-4. Review error logs
-
-## Support
-
-For issues:
-1. Check Vercel documentation: https://vercel.com/docs
-2. Review Next.js docs: https://nextjs.org/docs
-3. Check PostgreSQL docs: https://www.postgresql.org/docs
+1. Vercel Dashboard → Analytics and function logs
+2. LangSmith traces for agent runs (`LANGCHAIN_TRACING_V2=true`)
+3. `GET /api/health` on the Python service for liveness and tracing status
+4. Database usage in your Postgres provider's dashboard
 
 ## License
 
-MIT License - Feel free to use and modify for your needs
+MIT License

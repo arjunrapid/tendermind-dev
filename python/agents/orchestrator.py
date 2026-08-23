@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -58,6 +57,22 @@ Respond with ONLY this JSON object, no other text:
 ```"""
 
 
+# The orchestrator reproduces document text verbatim into three excerpts, so
+# its output scales with the input rather than being a short summary - and
+# clauses relevant to two domains are deliberately repeated. A fixed budget
+# silently truncates the JSON mid-string on longer documents, which reads in
+# the logs as unparseable output and drops routing to the keyword fallback.
+# Estimate from input size instead: ~4 chars/token, x1.5 for cross-domain
+# overlap and JSON overhead.
+_MIN_OUTPUT_TOKENS = 4096
+_MAX_OUTPUT_TOKENS = 16384
+
+
+def _output_budget_for(document_text: str) -> int:
+    estimated = int((len(document_text) / 4) * 1.5)
+    return max(_MIN_OUTPUT_TOKENS, min(estimated, _MAX_OUTPUT_TOKENS))
+
+
 def _fallback_routing(document_text: str) -> dict[str, str]:
     """Deterministic keyword-based routing (app.document_sections) used
     when the LLM call fails or returns unparseable output - degraded but
@@ -82,7 +97,9 @@ async def route_document_content(
 
     resolved_provider = provider or DEFAULT_PROVIDER
     try:
-        chat_model = get_model(resolved_provider, model, temperature=0.0, max_tokens=8192)
+        chat_model = get_model(
+            resolved_provider, model, temperature=0.0, max_tokens=_output_budget_for(document_text)
+        )
         response = await chat_model.ainvoke(
             [
                 SystemMessage(content=_ORCHESTRATOR_SYSTEM_PROMPT),
@@ -92,9 +109,20 @@ async def route_document_content(
             ],
             config=agent_run_config("orchestrator", bid_id, doc_type, provider=resolved_provider),
         )
-        parsed = extract_json_block(str(response.content))
+        content = str(response.content)
+        parsed = extract_json_block(content)
         if not parsed:
-            raise ValueError("Orchestrator response did not contain a parseable JSON block")
+            # Distinguish a truncated response from genuinely malformed output.
+            # Truncation means the token budget was too small for this
+            # document, which is actionable; "model ignored the format" is a
+            # different problem. Without this the two look identical in logs.
+            if content.rstrip().endswith("}"):
+                raise ValueError("Orchestrator response did not contain a parseable JSON block")
+            raise ValueError(
+                f"Orchestrator response was cut off before the JSON closed - the token "
+                f"budget was too small for this document ({len(document_text)} chars in, "
+                f"{len(content)} chars out). See _output_budget_for."
+            )
 
         routed = {
             "legal": str(parsed.get("legal_content") or "").strip(),

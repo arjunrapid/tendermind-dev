@@ -13,6 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app import db
+from app.auth import AdminUser, CurrentUser
 from app.company_context import CATEGORIES, classify_category
 from app.pdf_extract import extract_text_from_file
 
@@ -20,7 +21,7 @@ router = APIRouter()
 
 
 @router.get("/api/company-context")
-async def list_company_context(category: str | None = None):
+async def list_company_context(_user: CurrentUser, category: str | None = None):
     if category and category not in CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Unknown category '{category}'. Must be one of {CATEGORIES}.")
     try:
@@ -32,6 +33,7 @@ async def list_company_context(category: str | None = None):
 
 @router.post("/api/company-context")
 async def upload_company_context(
+    _admin: AdminUser,
     title: str = Form(...),
     content: str | None = Form(None),
     file: UploadFile | None = File(None),
@@ -71,7 +73,7 @@ async def upload_company_context(
 
 
 @router.delete("/api/company-context/{context_id}")
-async def delete_company_context(context_id: str):
+async def delete_company_context(context_id: str, _admin: AdminUser):
     try:
         deleted = await db.delete_company_context(context_id)
     except Exception as exc:

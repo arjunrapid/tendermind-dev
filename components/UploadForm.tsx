@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { useAuth } from '@/lib/auth';
 
 interface UploadFormProps {
   onUploadSuccess: (data: {
     fileName: string;
     extractedText: string;
+    documentId?: string;
     file: File;
   }) => void;
   onUploadStart?: (file: File) => void;
@@ -17,14 +19,16 @@ interface UploadFormProps {
  * to drive the progress bar - fetch has no upload progress API. */
 function uploadWithProgress(
   file: File,
+  token: string | null,
   onProgress: (percent: number) => void,
-): Promise<{ fileName: string; extractedText: string }> {
+): Promise<{ fileName: string; extractedText: string; documentId?: string }> {
   return new Promise((resolve, reject) => {
     const formData = new FormData();
     formData.append('file', file);
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload');
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -40,7 +44,12 @@ function uploadWithProgress(
           reject(new Error('Failed to parse upload response'));
         }
       } else {
-        reject(new Error('Failed to upload file'));
+        try {
+          const data = JSON.parse(xhr.responseText) as { error?: string; detail?: string };
+          reject(new Error(data.error || data.detail || 'Failed to upload file'));
+        } catch {
+          reject(new Error('Failed to upload file'));
+        }
       }
     };
 
@@ -56,6 +65,7 @@ export default function UploadForm({
   onUploadProgress,
   disabled = false,
 }: UploadFormProps) {
+  const { token } = useAuth();
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +89,7 @@ export default function UploadForm({
     onUploadProgress?.(0);
 
     try {
-      const data = await uploadWithProgress(file, (percent) => onUploadProgress?.(percent));
+      const data = await uploadWithProgress(file, token, (percent) => onUploadProgress?.(percent));
       onUploadSuccess({ ...data, file });
     } catch (err) {
       setError(

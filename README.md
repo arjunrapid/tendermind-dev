@@ -1,11 +1,15 @@
-# Construction Bid Analyzer MVP
+# Tendermind
 
-An intelligent construction document analysis platform that leverages AI agents to classify documents, assess risks, and recommend bids. Built with Next.js 14 and designed for free deployment on Vercel.
+An AI bid/no-bid advisor for construction tenders. Upload tender documents, and a
+pipeline of specialised agents classifies them, extracts contract terms with
+citations, computes deterministic pricing exposure, and returns a bid
+recommendation.
 
 ## Features
 
 ### Core Functionality
-- **📄 PDF Document Upload** - Drag-and-drop interface for uploading construction documents
+- **📄 PDF Document Upload** - Drag-and-drop upload with real text extraction
+  (`pdf-parse`). Scanned PDFs without OCR are rejected with an explicit error.
 - **🏷️ Document Classification** - Automatically identifies document types:
   - Contracts
   - Specifications
@@ -13,134 +17,203 @@ An intelligent construction document analysis platform that leverages AI agents 
   - Engineering Drawings
   - Addendums/Amendments
 
-- **⚖️ Multi-Agent Analysis** - Specialized agents analyze documents:
-  - **Legal Agent** - Reviews contracts, identifies compliance issues and legal risks
-  - **Civil Engineering Agent** - Assesses feasibility, timeline, and structural concerns
-  - **Accounting Agent** - Estimates costs including materials, labor, and contingencies
-  - **Risk Agent** - Calculates risk scores and mitigation strategies
+- **⚖️ Multi-Agent Analysis** - Specialised agents analyse documents:
+  - **Legal Agent** - LD caps, retention, termination, warranty, indemnity, arbitration
+  - **Engineering Agent** - Scope, timeline, site conditions, drawing classification
+  - **Accounting Agent** - Cost analysis, payment terms, qualification requirements, cash flow
+  - **Risk Agent** - Deterministic aggregation of the three assessments into a verdict
 
-- **💰 Bid Recommendations** - Intelligent pricing with:
-  - Cost estimation based on document type
-  - Risk-adjusted pricing
-  - Bid margin calculation
-  - Confidence scoring
+- **🔎 Citation Enforcement** - Extracted facts must carry a source citation
+  (`[page:5, section:Art. 6.2]`); coverage is validated per agent.
 
-- **📊 Bid History** - Track and review all analyzed documents with full audit trail
+- **💰 Deterministic Pricing** - LD exposure, performance security, and retention
+  lock-up computed with fixed arithmetic (no LLM), using terms extracted from
+  the document where available.
+
+- **🧠 Company Knowledge** - pgvector-backed retrieval of prior bid assessments,
+  so analyses draw on the company's own history.
+
+- **📊 Bid History** - Track and review all analysed documents with full audit trail.
+
+- **🔐 Role-gated UI** - `admin` and `analyst` roles. ⚠️ The login is a
+  **demo only**: credentials and session live in client-side `localStorage`
+  (`lib/auth.tsx`). It is not real authentication and must be replaced before
+  any production use.
 
 ## Tech Stack
 
-- **Frontend**: Next.js 14, React 19, TypeScript, Tailwind CSS
-- **Backend**: Vercel Serverless Functions
-- **Database**: Vercel Postgres (free tier)
-- **State Management**: React Hooks
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
+| Analysis backend | Python 3, FastAPI, LangGraph, LangSmith |
+| TypeScript backend | Next.js route handlers (upload, bids, BOQ) |
+| Database | Postgres + pgvector (Neon / Vercel Postgres) |
+| Storage | Vercel Blob |
+
+## Architecture
+
+The project is **mid-migration** from a TypeScript agent pipeline to a
+Python/LangGraph one. Both are present:
+
+- `python/` — the **live** analysis pipeline. LangGraph nodes for orchestrator,
+  legal, engineering, accounting, and risk; LangSmith tracing; pgvector
+  retrieval; per-agent model selection.
+- `lib/agents/` — the earlier TypeScript implementation. Still exercised by the
+  root `test-*.ts` scripts, but **not on the request path** for analysis.
+
+`POST /api/analyze` in Next.js is a thin proxy to the Python service. See
+[IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) for the route-by-route
+migration table.
 
 ## Getting Started
 
-### Local Development
+Analysis requires **both** servers running.
 
-1. **Install dependencies**
-```bash
-npm install
+### 1. Environment
+
+No env template is committed (`.env*` is gitignored). Create `.env.local` with
+at minimum:
+
+```env
+DATABASE_URL=postgresql://...        # Postgres with the pgvector extension
+OPENROUTER_API_KEY=your_key_here     # or another provider - see below
+PYTHON_BACKEND_URL=http://localhost:8000
 ```
 
-2. **Run development server**
+Full variable lists: `ENV_VAR_DOCS` in [lib/llm/config.ts](./lib/llm/config.ts)
+for the TypeScript side, and [python/models/factory.py](./python/models/factory.py)
+for the Python side.
+
+⚠️ **`DATABASE_URL` only helps the Python backend locally.** `lib/db.ts` uses
+`@vercel/postgres`'s `sql` tag, which is hardcoded to Neon's HTTP proxy
+protocol and refuses plain TCP connections outright (verified:
+`"Error connecting to database: fetch failed"` against a real local Postgres).
+So `upload`, `bids`, `bid/[id]`, and `admin/boq` need an actual Neon or Vercel
+Postgres instance even for local dev — a local Postgres will not work for them.
+
+**No Docker or Homebrew? Get a real local Postgres + pgvector anyway** — for
+the Python side only, per the above:
+
 ```bash
+scripts/local-postgres.sh start
+export DATABASE_URL=$(scripts/local-postgres.sh uri)
+```
+
+This installs [`uv`](https://astral.sh/uv) (no sudo) and uses the `pgserver`
+PyPI package to run a real, prebuilt Postgres 16 + pgvector 0.6.2. Verified
+working this session — `python/app/main.py` boots against it, creates all six
+tables, and a full `/api/analyze` run persisted and read back correctly. See
+the script's header comment and [DEPLOYMENT.md](./DEPLOYMENT.md) for detail.
+
+### 2. Frontend
+
+```bash
+npm install
 npm run dev
 ```
 
-3. **Open in browser**
-Navigate to `http://localhost:3000`
+→ http://localhost:3000
 
-## Deployment to Vercel
+### 3. Python backend
 
-### Quick Start
-
-1. **Push to GitHub**
 ```bash
-git init
-git add .
-git commit -m "Construction Bid Analyzer MVP"
-git push -u origin main
+cd python
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
 ```
 
-2. **Deploy to Vercel**
-- Visit [vercel.com](https://vercel.com)
-- Click "New Project"
-- Import your GitHub repository
-- Add `POSTGRES_URLPGSQL` environment variable
-- Deploy!
+Health check: `GET http://localhost:8000/api/health`
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed instructions.
+Without this running, uploads succeed but `/api/analyze` returns a connection error.
+
+## LLM Providers
+
+Provider selection is configuration, not code.
+
+**Python backend** (`python/models/factory.py`) — `openai`, `google`,
+`anthropic`, `openrouter`, `moonshot`. Defaults to `DEFAULT_LLM_PROVIDER`
+(`anthropic` if unset). Per-agent overrides via `/api/admin/models`.
+
+**TypeScript** (`lib/llm/`) — `openrouter` (default), `tokenrouter`,
+`anthropic`, with automatic failover to any other provider that has a key set.
 
 ## Project Structure
 
 ```
 app/
-├── page.tsx                 # Upload interface
-├── bids/page.tsx           # Bid history
-├── bid/[id]/page.tsx       # Bid details
-└── api/                    # API endpoints
-    ├── upload/route.ts
-    ├── analyze/route.ts
-    ├── bids/route.ts
-    └── bid/[id]/route.ts
+├── page.tsx                    # Upload interface
+├── login/page.tsx              # Demo login
+├── bids/page.tsx               # Bid history
+├── bid/[id]/page.tsx           # Bid details
+├── admin/                      # BOQ defaults, model config, company context
+└── api/                        # Route handlers (some proxy to Python)
 
-components/
-├── UploadForm.tsx          # File upload
-└── ResultsView.tsx         # Results display
+components/                     # AppShell, UploadForm, ResultsView,
+                                # PdfViewer, ProcessProgress, StatCard
 
 lib/
-├── db.ts                   # Database
-├── pdf.ts                  # PDF extraction
-├── classifier.ts           # Classification
-└── agents/mock-agents.ts  # Mock agents
-```
+├── agents/                     # Legacy TS agents (legal, engineering,
+│                               #   accounting, risk) + unused mock-agents.ts
+├── llm/                        # Provider abstraction + factory
+├── memory/                     # File-based agent memory (store shared with Python)
+├── citation-tracker.ts         # Citation extraction and validation
+├── pricing-engine.ts           # Deterministic pricing (no LLM)
+├── classifier.ts               # Document classification
+├── db.ts                       # Postgres schema and queries
+└── pdf.ts                      # PDF text extraction
 
-## Features
+python/
+├── app/                        # FastAPI routers, db, knowledge, embeddings
+├── agents/                     # Prompts, nodes, orchestrator, tracing
+├── graph/pipeline.py           # LangGraph pipeline
+└── models/factory.py           # Multi-provider chat model factory
 
-✅ PDF upload and text extraction  
-✅ Document classification (5 types)  
-✅ Multi-agent analysis (Legal, Engineering, Accounting, Risk)  
-✅ Bid recommendations with pricing  
-✅ Bid history tracking  
-✅ Responsive React UI  
-✅ Free Vercel deployment  
-
-## Ready for Claude API Integration
-
-The architecture is ready to replace mock agents with real Claude API:
-
-```bash
-npm install @anthropic-ai/sdk
-# Add ANTHROPIC_API_KEY to .env.local
-# Replace mock agents in lib/agents/
+test-*.ts                       # Scenario scripts for the TS pipeline
+sample-tenders/                 # Sample tender documents
 ```
 
 ## API Endpoints
 
-- `POST /api/upload` - Upload PDF and extract text
-- `POST /api/analyze` - Analyze document and generate bid
-- `GET /api/bids` - Fetch bid history
-- `GET /api/bid/[id]` - Get bid details
+| Endpoint | Handled by |
+|---|---|
+| `POST /api/upload` | Next.js |
+| `POST /api/analyze` | Proxy → Python |
+| `GET /api/bids` | Next.js |
+| `GET/DELETE /api/bid/[id]` | Next.js |
+| `GET/POST /api/admin/boq` | Next.js |
+| `GET/POST /api/admin/models` | Proxy → Python |
+| `/api/company-context` | Proxy → Python |
+| `GET /api/health` | Python only |
 
 ## Database
 
-Uses Vercel Postgres (free tier: 256MB):
-- Automatic table creation on first use
-- Stores document analysis and bid history
+Postgres, with tables created automatically on first use.
 
-## Next Steps
+- TypeScript (`lib/db.ts`): `bids`, `extracted_clauses`, `boq_defaults`
+- Python: additionally requires the **pgvector** extension for company-knowledge
+  embeddings
 
-1. Deploy to Vercel (see DEPLOYMENT.md)
-2. Add your Anthropic API key for Claude integration
-3. Customize agent prompts for your use case
-4. Add user authentication
-5. Build additional features
+## Testing
+
+The root `test-*.ts` scripts exercise the **TypeScript** pipeline, not the live
+Python one. There is no `test` script in `package.json` and no TS runner is
+declared as a dependency, so run them ad hoc:
+
+```bash
+npx tsx test-pricing-engine.ts
+```
+
+## Documentation
+
+- [IMPLEMENTATION_STATUS.md](./IMPLEMENTATION_STATUS.md) - current state and remaining work
+- [AGENTS_COMPLETE_GUIDE.md](./AGENTS_COMPLETE_GUIDE.md) - agent architecture
+- [MEMORY_SYSTEM_GUIDE.md](./MEMORY_SYSTEM_GUIDE.md) - agent memory
+- [LEGAL_AGENT_GUIDE.md](./LEGAL_AGENT_GUIDE.md) - legal agent detail
+- [TENDER_ASSISTANT.md](./TENDER_ASSISTANT.md) - product behaviour
+- [DEPLOYMENT.md](./DEPLOYMENT.md) - deployment
+- [python/README.md](./python/README.md) - Python backend
 
 ## License
 
 MIT License
-
----
-
-**Deployed to Vercel** | **Ready for Production** | **MIT License**

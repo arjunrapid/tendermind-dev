@@ -7,6 +7,7 @@ deterministic (no LLM), matching the original TS pipeline's PRD requirement.
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 
@@ -14,12 +15,17 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app import db
+from app.auth import CurrentUser
 from app.bid_strategy import calculate_optimal_bid_price
 from app.boq import calculate_boq_costs
+from app.citations import enforce_citation_coverage
 from app.classifier import classify_document
 from app.knowledge import index_bid_knowledge
 from app.pricing_engine import calculate_pricing_from_document
+from app.validation import validate_bid_result
 from graph.pipeline import run_pipeline
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -33,7 +39,7 @@ class AnalyzeRequest(BaseModel):
 
 
 @router.post("/api/analyze")
-async def analyze(body: AnalyzeRequest):
+async def analyze(_user: CurrentUser, body: AnalyzeRequest):
     if not body.fileName or not body.extractedText:
         raise HTTPException(status_code=400, detail="Missing required fields")
 
@@ -142,6 +148,53 @@ async def analyze(body: AnalyzeRequest):
 
     processing_time_ms = int((time.perf_counter() - start_time) * 1000)
 
+    # --- Citation enforcement (M2a) -----------------------------------------
+    # Soft enforcement: coverage below threshold is annotated and logged but
+    # does not block the save or elevate to MANUAL_REVIEW automatically, since
+    # some models produce narrative answers rather than bulleted cited lists
+    # and would be incorrectly penalised.  Callers (UI) can surface low-
+    # coverage warnings to prompt human review.
+    citation_report = enforce_citation_coverage(
+        legal_assessment, engineering_assessment, accounting_assessment
+    )
+    if not citation_report["is_compliant"]:
+        logger.warning(
+            "Citation coverage below threshold for bid %s: overall=%.0f%% low_agents=%s",
+            bid_id,
+            citation_report["overall_coverage"] * 100,
+            citation_report["low_coverage_agents"],
+        )
+    bid_recommendation["citation_coverage"] = citation_report
+
+    # --- Pre-persist validation (M2b) ----------------------------------------
+    # Critical validation errors elevate the bid_decision to MANUAL_REVIEW so
+    # a coherently wrong decision (e.g. YES with a high risk score) is never
+    # persisted silently.
+    validation_report = validate_bid_result(
+        legal_assessment,
+        engineering_assessment,
+        accounting_assessment,
+        risk_assessment,
+        bid_recommendation,
+        pricing_breakdown,
+    )
+    bid_recommendation["validation"] = validation_report
+    if not validation_report["is_valid"]:
+        logger.error(
+            "Bid validation errors for bid %s: %s",
+            bid_id,
+            [e["code"] for e in validation_report["errors"]],
+        )
+        # Escalate to MANUAL_REVIEW so a bad decision is never acted on.
+        if bid_recommendation.get("bid_decision") not in ("MANUAL_REVIEW", None):
+            bid_recommendation["bid_decision"] = "MANUAL_REVIEW"
+            bid_recommendation["recommended_bid_price"] = None
+            bid_recommendation["confidence_score"] = None
+            bid_recommendation["pricing_strategy_rationale"] = (
+                "Bid decision escalated to manual review due to validation errors. "
+                "See validation.errors for details."
+            )
+
     bid = await db.save_bid(
         {
             "id": bid_id,
@@ -188,4 +241,27 @@ async def analyze(body: AnalyzeRequest):
         "riskAssessment": risk_assessment,
         "pricingBreakdown": pricing_breakdown,
         "bidRecommendation": bid_recommendation,
+        # M4a: Analysis provenance — which model/provider each agent used,
+        # whether any fell back to error mode, and timing per agent.
+        "analysisProvenance": {
+            "providers": {
+                "legal": legal_assessment.get("provider_used", "unknown"),
+                "engineering": engineering_assessment.get("provider_used", "unknown"),
+                "accounting": accounting_assessment.get("provider_used", "unknown"),
+                "risk": "deterministic",  # no LLM in risk aggregator
+            },
+            "failed_agents": [
+                agent
+                for agent, assessment in (
+                    ("legal", legal_assessment),
+                    ("engineering", engineering_assessment),
+                    ("accounting", accounting_assessment),
+                )
+                if assessment.get("provider_used") == "error"
+            ],
+            "manual_review": needs_manual_review,
+            "processing_time_ms": processing_time_ms,
+            "agent_timings_ms": agent_timings,
+            "citation_coverage": citation_report,
+        },
     }
