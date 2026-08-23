@@ -116,12 +116,12 @@ export default function UploadForm({
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+        className={`relative border border-dashed p-10 text-center transition-colors ${
           isBusy
-            ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 cursor-not-allowed opacity-70'
+            ? 'border-line bg-panel cursor-not-allowed opacity-70'
             : isDragging
-              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 cursor-pointer'
-              : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 hover:border-gray-400 cursor-pointer'
+              ? 'border-accent bg-panel2 cursor-pointer'
+              : 'border-line-strong bg-panel hover:border-ink cursor-pointer'
         }`}
       >
         <input
@@ -138,7 +138,7 @@ export default function UploadForm({
           className={isBusy ? '' : 'cursor-pointer'}
         >
           <svg
-            className={`mx-auto h-12 w-12 ${isBusy ? 'text-gray-300' : 'text-gray-400 dark:text-gray-500'}`}
+            className={`mx-auto h-9 w-9 ${isBusy ? 'text-ink-45' : 'text-ink-60'}`}
             stroke="currentColor"
             fill="none"
             viewBox="0 0 48 48"
@@ -151,21 +151,19 @@ export default function UploadForm({
             />
           </svg>
 
-          <p className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
+          <p className="mt-4 text-[14px] font-medium">
             {isUploading
-              ? 'Uploading...'
+              ? 'Reading document…'
               : disabled
-                ? 'Processing in progress...'
-                : 'Drag and drop your PDF or text file here'}
+                ? 'Analysis in progress…'
+                : 'Drop a tender document here'}
           </p>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {isBusy ? 'Please wait' : 'or click to browse'}
-          </p>
+          <p className="micro mt-2">{isBusy ? 'Please wait' : 'PDF · TXT — or click to browse'}</p>
         </div>
       </div>
 
       {error && (
-        <div className="mt-4 p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
+        <div className="mt-4 border-l-2 border-danger pl-4 py-1 text-[13px] text-danger">
           {error}
         </div>
       )}

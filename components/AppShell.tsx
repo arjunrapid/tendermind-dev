@@ -2,25 +2,33 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ReactNode, useEffect } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { useAuth } from '@/lib/auth';
-import { useTheme } from '@/lib/theme';
+import { DEMO_WORKSPACE } from '@/lib/demo-data';
 
 interface NavItem {
   href: string;
   label: string;
-  icon: string;
+  /** Right-aligned mono count. `live` items fill from the database. */
+  badge?: string;
+  live?: 'bids';
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/', label: 'Dashboard', icon: '🏠' },
-  { href: '/bids', label: 'Bid History', icon: '📋' },
+  { href: '/', label: 'Overview' },
+  { href: '/memory', label: 'Company Memory', badge: DEMO_WORKSPACE.factCount },
+  { href: '/tenders', label: 'Tenders' },
+  { href: '/bids', label: 'Bid Pipeline', live: 'bids' },
+  { href: '/commercial', label: 'Commercial' },
+  { href: '/legal', label: 'Legal', badge: DEMO_WORKSPACE.legalCount },
+  { href: '/sources', label: 'Sources', badge: DEMO_WORKSPACE.sourceCount },
+  { href: '/team', label: 'Team', badge: DEMO_WORKSPACE.teamCount },
 ];
 
 const ADMIN_NAV_ITEMS: NavItem[] = [
-  { href: '/admin', label: 'Default Cost Items', icon: '💰' },
-  { href: '/admin/models', label: 'Model Management', icon: '🧠' },
-  { href: '/admin/company-context', label: 'Company Context', icon: '📚' },
+  { href: '/admin', label: 'Default Cost Items' },
+  { href: '/admin/models', label: 'Model Management' },
+  { href: '/admin/company-context', label: 'Company Context' },
 ];
 
 interface AppShellProps {
@@ -35,131 +43,159 @@ interface AppShellProps {
   children: ReactNode;
 }
 
-/** Shared sidebar + topbar dashboard shell, used by every page instead of
- * each page rendering its own full-width gradient header. Modeled on the
- * common "admin dashboard" layout pattern (fixed left nav + topbar + card
- * content area) rather than a single-column landing-page layout.
+/** Workspace chrome: a full-height sidebar plus the page header rendered
+ * inside the content column (the design has no topbar - the page title is
+ * part of the page, under a mono eyebrow).
  *
- * Also owns the sample-auth gate: redirects to /login when signed out, and
- * only renders the Admin nav section / avatar menu for the logged-in role
- * (lib/auth.tsx - tmadmin vs tmanalyst). */
-export default function AppShell({ title, subtitle, actions, requireAdmin, children }: AppShellProps) {
+ * Also owns the sample-auth gate: redirects signed-out visitors to the
+ * marketing page, and only renders the Admin nav section for the logged-in
+ * role (lib/auth.tsx - tmadmin vs tmanalyst). */
+export default function AppShell({
+  title,
+  subtitle,
+  actions,
+  requireAdmin,
+  children,
+}: AppShellProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, isLoading, logout } = useAuth();
-  const { theme, toggleTheme } = useTheme();
-  const isActive = (href: string) => pathname === href;
+  const [bidCount, setBidCount] = useState<string | undefined>();
   const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
-    if (!isLoading && !user) router.replace('/login');
+    if (!isLoading && !user) router.replace('/welcome');
   }, [isLoading, user, router]);
+
+  useEffect(() => {
+    if (!user) return;
+    fetch('/api/bids?limit=100')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setBidCount(String(d.bids?.length ?? 0)))
+      .catch(() => {});
+  }, [user]);
 
   if (isLoading || !user) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-blue-200 dark:border-blue-800 border-t-blue-600" />
+      <div className="min-h-screen bg-cream flex items-center justify-center">
+        <div className="micro tm-pulse">Loading workspace</div>
       </div>
     );
   }
 
-  const renderNavItem = (item: NavItem) => (
-    <Link
-      key={item.href}
-      href={item.href}
-      className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-        isActive(item.href)
-          ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300'
-          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-gray-100'
-      }`}
-    >
-      <span className="text-base leading-none">{item.icon}</span>
-      {item.label}
-    </Link>
-  );
+  const initials = user.name
+    .split(' ')
+    .map((p) => p.charAt(0))
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
+  const renderNavItem = (item: NavItem) => {
+    const active = pathname === item.href;
+    const badge = item.live === 'bids' ? bidCount : item.badge;
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        className={`flex items-center justify-between gap-3 px-3 py-2 text-[13.5px] transition-colors ${
+          active
+            ? 'bg-ink-08 text-ink font-semibold'
+            : 'text-ink-60 hover:text-ink hover:bg-ink-08'
+        }`}
+      >
+        <span className="truncate">{item.label}</span>
+        {badge ? <span className="font-mono text-[11px] text-ink-45">{badge}</span> : null}
+      </Link>
+    );
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex">
-      <aside className="w-64 shrink-0 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col fixed inset-y-0 left-0 z-20">
-        <div className="h-16 flex items-center gap-2 px-6 border-b border-gray-200 dark:border-gray-700">
-          <div className="h-8 w-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-sm">
-            T
-          </div>
-          <span className="font-bold text-gray-900 dark:text-gray-100">Tendermind</span>
+    <div className="min-h-screen bg-cream text-ink flex">
+      <aside className="w-[236px] shrink-0 border-r border-line flex flex-col fixed inset-y-0 left-0 z-20 bg-cream">
+        <div className="px-5 h-[68px] flex items-center gap-2">
+          <span className="text-[17px] font-semibold tracking-[-0.02em]">TenderMind</span>
+          <span className="h-1.5 w-1.5 rounded-full bg-accent inline-block" />
         </div>
 
-        <nav className="flex-1 px-3 py-6 overflow-y-auto">
-          <div className="space-y-1">{NAV_ITEMS.map(renderNavItem)}</div>
+        <div className="px-4 pb-4">
+          <div className="border border-line px-3.5 py-3">
+            <div className="text-[13px] font-medium truncate">{DEMO_WORKSPACE.company}</div>
+            <div className="text-[11.5px] text-ink-45 mt-0.5">{DEMO_WORKSPACE.plan}</div>
+          </div>
+        </div>
+
+        <nav className="flex-1 px-2 overflow-y-auto">
+          <div className="space-y-0.5">{NAV_ITEMS.map(renderNavItem)}</div>
 
           {isAdmin && (
             <>
-              <p className="px-3 pt-6 pb-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wide">
-                Admin
-              </p>
-              <div className="space-y-1">{ADMIN_NAV_ITEMS.map(renderNavItem)}</div>
+              <div className="micro px-3 pt-6 pb-2">Admin</div>
+              <div className="space-y-0.5">{ADMIN_NAV_ITEMS.map(renderNavItem)}</div>
             </>
           )}
         </nav>
 
-        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-sm font-semibold text-gray-600 dark:text-gray-400 shrink-0">
-              {user.name.charAt(0)}
+        <div className="border-t border-line px-2 py-3 space-y-0.5">
+          <Link
+            href="/settings"
+            className="block px-3 py-2 text-[13px] text-ink-60 hover:text-ink hover:bg-ink-08 transition-colors"
+          >
+            Settings &amp; integrations
+          </Link>
+          <Link
+            href="/welcome"
+            className="block px-3 py-2 text-[13px] text-ink-60 hover:text-ink hover:bg-ink-08 transition-colors"
+          >
+            Marketing site
+          </Link>
+
+          <div className="flex items-center gap-3 px-3 pt-3">
+            <div className="h-9 w-9 shrink-0 bg-ink text-cream flex items-center justify-center font-mono text-[11px]">
+              {initials}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{user.name}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 capitalize truncate">{user.role}</p>
+              <p className="text-[13px] font-medium truncate">{user.name}</p>
+              <p className="text-[11.5px] text-ink-45 capitalize truncate">{user.role}</p>
             </div>
           </div>
           <button
             onClick={() => {
               logout();
-              router.replace('/login');
+              router.replace('/welcome');
             }}
-            className="mt-3 w-full text-left text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+            className="w-full text-left px-3 py-1.5 text-[11.5px] text-ink-45 hover:text-ink transition-colors"
           >
             Sign out
           </button>
         </div>
       </aside>
 
-      <div className="flex-1 ml-64 flex flex-col min-w-0">
-        <header className="h-16 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-8 sticky top-0 z-10">
-          <div className="min-w-0">
-            <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">{title}</h1>
-            {subtitle && <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{subtitle}</p>}
-          </div>
-          <div className="flex items-center gap-4 shrink-0">
-            <button
-              onClick={toggleTheme}
-              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-              className="h-9 w-9 rounded-full flex items-center justify-center text-base border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-            >
-              {theme === 'dark' ? '☀️' : '🌙'}
-            </button>
-            {actions}
-            <div className="h-9 w-9 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-sm font-semibold text-gray-600 dark:text-gray-400">
-              {user.name.charAt(0)}
+      <main className="flex-1 ml-[236px] min-w-0 px-10 py-9">
+        <div className="border-b border-line pb-6 mb-8">
+          <div className="flex items-start justify-between gap-6 flex-wrap">
+            <div className="min-w-0">
+              {subtitle ? <div className="micro mb-2">{subtitle}</div> : null}
+              <h1 className="text-[32px] leading-[1.1] font-semibold tracking-[-0.03em]">
+                {title}
+              </h1>
             </div>
+            {actions ? <div className="flex items-center gap-3 shrink-0">{actions}</div> : null}
           </div>
-        </header>
+        </div>
 
-        <main className="flex-1 px-8 py-8 min-w-0">
-          {requireAdmin && !isAdmin ? (
-            <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-12 text-center max-w-lg">
-              <div className="text-4xl mb-3">🔒</div>
-              <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-1">Access restricted</h2>
-              <p className="text-gray-600 dark:text-gray-400 text-sm">
-                This page is only available to admin accounts. You&apos;re signed in as{' '}
-                <span className="font-medium">{user.name}</span> ({user.role}).
-              </p>
-            </div>
-          ) : (
-            children
-          )}
-        </main>
-      </div>
+        {requireAdmin && !isAdmin ? (
+          <div className="border border-line bg-panel px-8 py-10 max-w-xl">
+            <div className="micro mb-3">Access restricted</div>
+            <h2 className="text-[19px] font-semibold tracking-[-0.02em]">Admin accounts only</h2>
+            <p className="text-[13px] leading-[1.65] text-ink-72 mt-3">
+              This page is only available to admin accounts. You are signed in as{' '}
+              <span className="font-medium">{user.name}</span> ({user.role}).
+            </p>
+          </div>
+        ) : (
+          children
+        )}
+      </main>
     </div>
   );
 }
