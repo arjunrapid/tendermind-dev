@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   // that lookup ("Cannot find module '.../pdf.worker.mjs'") because the
   // worker file never gets copied into the build's chunk output. Keeping it
   // external makes Node load it straight from node_modules instead.
-  serverExternalPackages: ["pdf-parse"],
+  serverExternalPackages: ["pdf-parse", "@napi-rs/canvas"],
 };
 
 export default nextConfig;
