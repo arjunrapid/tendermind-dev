@@ -187,6 +187,13 @@ Financial sustainability:
 - Early payment discounts or financing options
 - Duration of payment cycles from invoice to receipt
 
+### 5. Financial Risk Rating
+Rate overall financial risk (HIGH/MEDIUM/LOW) based on:
+- Payment term favorability and cash flow impact
+- Retention/holdback exposure relative to margin
+- Difficulty of meeting qualification requirements
+- Overall financial sustainability of taking on this bid
+
 ## Citation Requirements
 **IMPORTANT: Every statement MUST include a citation.**
 Use format: [page:N, section:NAME] or [page N, NAME] for each claim.
@@ -208,7 +215,8 @@ Provide analysis in the following JSON format:
     "Requirement 1 [page:X, section:Y]",
     "Requirement 2 [page:X, section:Y]"
   ],
-  "cash_flow_analysis": "Summary of cash flow implications and working capital needs [page:X]"
+  "cash_flow_analysis": "Summary of cash flow implications and working capital needs [page:X]",
+  "financial_risk": "HIGH/MEDIUM/LOW - Rationale [page:X]"
 }
 ```
 

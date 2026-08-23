@@ -240,6 +240,7 @@ async def accounting_agent(
                 "payment_terms": parse_array(parsed.get("payment_terms")),
                 "qualification_requirements": parse_array(parsed.get("qualification_requirements")),
                 "cash_flow_analysis": str(parsed.get("cash_flow_analysis") or "Cash flow analysis incomplete"),
+                "financial_risk": str(parsed.get("financial_risk") or "MEDIUM - Insufficient data"),
             }
         else:
             cash_flow_match = next(
@@ -251,6 +252,7 @@ async def accounting_agent(
                 "payment_terms": extract_bullet_points(content, "payment"),
                 "qualification_requirements": extract_bullet_points(content, "qualification"),
                 "cash_flow_analysis": cash_flow_match.strip(),
+                "financial_risk": extract_rating_line(content, ("HIGH", "MEDIUM", "LOW")),
             }
         try:
             extract_and_save_memory("accounting", content, bid_id, doc_type)
@@ -265,5 +267,6 @@ async def accounting_agent(
             "payment_terms": [],
             "qualification_requirements": ["Unable to complete automated analysis"],
             "cash_flow_analysis": "Analysis failed - requires manual accounting review",
+            "financial_risk": "HIGH: Analysis failed - requires manual accounting review",
             "provider_used": "error",
         }

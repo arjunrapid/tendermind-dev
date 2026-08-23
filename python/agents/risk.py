@@ -28,6 +28,10 @@ def _feasibility_to_score(rating: str | None) -> float:
     return {"LOW": 0.9, "HIGH": 0.15}.get(rating or "", 0.5)
 
 
+def _financial_risk_to_score(rating: str | None) -> float:
+    return {"HIGH": 0.9, "LOW": 0.15}.get(rating or "", 0.5)
+
+
 def _risk_level(score: float) -> str:
     if score < 0.33:
         return "LOW"
@@ -70,6 +74,8 @@ def _extract_accounting_risks(accounting: dict[str, Any]) -> list[str]:
     cash_flow = accounting.get("cash_flow_analysis", "").lower()
     if "tight" in cash_flow or "negative" in cash_flow:
         risks.append(f"Accounting - Cash flow concern: {accounting.get('cash_flow_analysis', '')}")
+    if _leading_rating(accounting.get("financial_risk", ""), ("HIGH",)):
+        risks.append("Accounting - Overall financial risk rated HIGH")
     return risks
 
 
@@ -115,7 +121,13 @@ def _mitigation_strategies(legal_risks: list[str], eng_risks: list[str], acct_ri
     return strategies[:6]
 
 
-def _rationale(legal_rating: str | None, feasibility_rating: str | None, risk_level: str, recommendation: str) -> str:
+def _rationale(
+    legal_rating: str | None,
+    feasibility_rating: str | None,
+    financial_rating: str | None,
+    risk_level: str,
+    recommendation: str,
+) -> str:
     parts = []
     parts.append(
         {
@@ -128,6 +140,12 @@ def _rationale(legal_rating: str | None, feasibility_rating: str | None, risk_le
             "LOW": "Engineering feasibility is a serious concern.",
             "HIGH": "Engineering feasibility looks strong.",
         }.get(feasibility_rating or "", "Engineering feasibility is moderate, with some concerns to manage.")
+    )
+    parts.append(
+        {
+            "HIGH": "Financial risk is a serious concern.",
+            "LOW": "Financial risk looks low.",
+        }.get(financial_rating or "", "Financial risk is moderate, with some terms to negotiate.")
     )
     parts.append(
         {
@@ -220,10 +238,11 @@ def risk_agent(legal: dict[str, Any], engineering: dict[str, Any], accounting: d
 
         legal_rating = _leading_rating(legal.get("overall_assessment", ""), ("GREEN", "YELLOW", "RED"))
         feasibility_rating = _leading_rating(engineering.get("feasibility", ""), ("HIGH", "MEDIUM", "LOW"))
+        financial_rating = _leading_rating(accounting.get("financial_risk", ""), ("HIGH", "MEDIUM", "LOW"))
 
         legal_component = _rating_to_score(legal_rating) * 0.65 + min(len(legal_risks) / 12, 1) * 0.35
         engineering_component = _feasibility_to_score(feasibility_rating) * 0.65 + min(len(engineering_risks) / 10, 1) * 0.35
-        accounting_component = min(len(accounting_risks) / 10, 1)
+        accounting_component = _financial_risk_to_score(financial_rating) * 0.65 + min(len(accounting_risks) / 10, 1) * 0.35
 
         risk_score = legal_component * 0.4 + engineering_component * 0.35 + accounting_component * 0.25
         risk_level = _risk_level(risk_score)
@@ -236,7 +255,9 @@ def risk_agent(legal: dict[str, Any], engineering: dict[str, Any], accounting: d
             "risk_factors": legal_risks + engineering_risks + accounting_risks,
             "mitigation_strategies": _mitigation_strategies(legal_risks, engineering_risks, accounting_risks),
             "recommendation": recommendation,
-            "recommendation_rationale": _rationale(legal_rating, feasibility_rating, risk_level, recommendation),
+            "recommendation_rationale": _rationale(
+                legal_rating, feasibility_rating, financial_rating, risk_level, recommendation
+            ),
             "aggregated_findings": _aggregated_findings(legal, engineering, accounting),
             "contract_summary": _contract_summary(legal, engineering, accounting),
             "bid_decision": bid_decision,
