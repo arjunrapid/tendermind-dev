@@ -1,36 +1,134 @@
 @import "tailwindcss";
 
-/* Tailwind v4 defaults `dark:` to a prefers-color-scheme media query. This
-   app's theme is switched explicitly via the toggle button (lib/theme.tsx),
-   which sets/removes a `dark` class on <html> - redefine the variant to
-   follow that class instead, so the toggle (not the OS setting) decides. */
+/* Pages not yet reskinned still carry `dark:` utilities. Keeping the variant
+   bound to the .dark class (rather than the OS preference) means those pages
+   behave exactly as before while the cream/ink design rolls out; the variant
+   and its remaining usages go away once every screen is converted. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-  /* Native controls (<select>, <input>) should match whichever theme is
-     actually active, not the OS preference - color-scheme is flipped
-     alongside the `dark` class below rather than left to
-     prefers-color-scheme, so it always agrees with the toggle. */
-  color-scheme: light;
-}
-
-:root.dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  color-scheme: dark;
-}
-
+/**
+ * TenderMind design tokens.
+ *
+ * Cream/ink editorial palette: a committed single-mode design where the
+ * paper-like background and near-black ink are the identity. Emphasis comes
+ * from hairline rules, 1px-gap grids and a mono voice for figures and
+ * micro-labels rather than from shadows or rounded corners.
+ */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-cream: #f3f0e8;
+  --color-panel: #f7f5ef;
+  --color-panel2: #efebe1;
+  --color-ink: #171714;
+  --color-accent: #c4512d;
+  --color-danger: #b3341c;
+  --color-warn: #b98a2e;
+  --color-ok: #4a6b3f;
+
+  --color-line: rgba(23, 23, 20, 0.12);
+  --color-line-strong: rgba(23, 23, 20, 0.2);
+  --color-ink-72: rgba(23, 23, 20, 0.72);
+  --color-ink-60: rgba(23, 23, 20, 0.6);
+  --color-ink-45: rgba(23, 23, 20, 0.45);
+  --color-ink-08: rgba(23, 23, 20, 0.07);
+
+  --font-sans: var(--font-inter), Inter, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-jbmono), "JetBrains Mono", ui-monospace, monospace;
+}
+
+html,
+body {
+  background: #f3f0e8;
+  color: #171714;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), Inter, system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: #c4512d;
+  color: #f3f0e8;
+}
+
+/* Uppercase letterspaced mono label used above every section in the design. */
+.micro {
+  font-family: var(--font-jbmono), "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(23, 23, 20, 0.45);
+}
+
+@keyframes tmIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tmDrawer {
+  from {
+    transform: translateX(24px);
+    opacity: 0.4;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@keyframes tmPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.tm-in {
+  animation: tmIn 0.32s ease both;
+}
+
+.tm-drawer {
+  animation: tmDrawer 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.tm-pulse {
+  animation: tmPulse 1.4s ease-in-out infinite;
+}
+
+/* Scenario sliders in the commercial model: 2px ink track, accent thumb. */
+input[type="range"].tm-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 2px;
+  background: rgba(23, 23, 20, 0.2);
+  outline: none;
+}
+
+input[type="range"].tm-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #c4512d;
+  cursor: pointer;
+}
+
+input[type="range"].tm-range::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border: none;
+  border-radius: 50%;
+  background: #c4512d;
+  cursor: pointer;
 }
