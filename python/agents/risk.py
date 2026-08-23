@@ -41,7 +41,9 @@ def _counterparty_to_score(verification: dict[str, Any] | None) -> float:
         return 0.5
     if verification.get("debarred"):
         return 0.9
-    return {"verified": 0.15, "flagged": 0.8, "unavailable": 0.5}.get(verification.get("status") or "", 0.5)
+    return {"verified": 0.15, "flagged": 0.8, "unavailable": 0.5}.get(
+        verification.get("status") or "", 0.5
+    )
 
 
 def _risk_level(score: float) -> str:

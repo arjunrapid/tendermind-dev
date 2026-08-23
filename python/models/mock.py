@@ -11,12 +11,18 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from typing import Any
 
-from langchain_core.callbacks.manager import CallbackManagerForLLMRun
+from langchain_core.callbacks.manager import (
+    AsyncCallbackManagerForLLMRun,
+    CallbackManagerForLLMRun,
+)
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import Runnable
+from langchain_core.tools import BaseTool
 from pydantic import PrivateAttr
 
 _FINAL_RESPONSES: dict[str, str] = {
@@ -73,9 +79,15 @@ def _accounting_final_json(tool_result_raw: str | None) -> str:
 
     return json.dumps(
         {
-            "cost_analysis": ["[MOCK] Direct costs ~70% of contract value [page:8, section:3.1]"],
-            "payment_terms": ["[MOCK] 10% retention released on final acceptance [page:9, section:3.4]"],
-            "qualification_requirements": ["[MOCK] Minimum 3 similar projects in last 5 years [page:10, section:4.1]"],
+            "cost_analysis": [
+                "[MOCK] Direct costs ~70% of contract value [page:8, section:3.1]"
+            ],
+            "payment_terms": [
+                "[MOCK] 10% retention released on final acceptance [page:9, section:3.4]"
+            ],
+            "qualification_requirements": [
+                "[MOCK] Minimum 3 similar projects in last 5 years [page:10, section:4.1]"
+            ],
             "cash_flow_analysis": "[MOCK] Retention creates moderate working-capital pressure [page:9]",
             "financial_risk": f"MEDIUM - {note} [page:9]",
         }
@@ -91,7 +103,13 @@ class MockChatModel(BaseChatModel):
     _tool_call_made: bool = PrivateAttr(default=False)
     _tool_call_name: str | None = PrivateAttr(default=None)
 
-    def bind_tools(self, tools: list[Any], **kwargs: Any) -> "MockChatModel":
+    def bind_tools(
+        self,
+        tools: Sequence[dict[str, Any] | type | Any | BaseTool],
+        *,
+        tool_choice: str | None = None,
+        **kwargs: Any,
+    ) -> Runnable[Any, AIMessage]:
         return self
 
     @property
@@ -112,10 +130,10 @@ class MockChatModel(BaseChatModel):
         self,
         messages: list[BaseMessage],
         stop: list[str] | None = None,
-        run_manager: CallbackManagerForLLMRun | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        return self._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+        return self._generate(messages, stop=stop, run_manager=None, **kwargs)
 
     def _next_message(self, messages: list[BaseMessage]) -> AIMessage:
         if self.agent != "accounting":
@@ -144,7 +162,10 @@ class MockChatModel(BaseChatModel):
         # Second turn: the ToolMessage from verify_counterparty is now in
         # `messages` - find it and fold its summary into the final answer.
         for message in reversed(messages):
-            if message.__class__.__name__ == "ToolMessage" and getattr(message, "name", None) == "verify_counterparty":
+            if (
+                message.__class__.__name__ == "ToolMessage"
+                and getattr(message, "name", None) == "verify_counterparty"
+            ):
                 return AIMessage(content=_accounting_final_json(str(message.content)))
         return AIMessage(content=_accounting_final_json(None))
 

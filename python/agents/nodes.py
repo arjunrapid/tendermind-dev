@@ -24,7 +24,11 @@ from agents.prompts import (
     tool_user_message_for,
     user_message_for,
 )
-from agents.tools import company_context_tool_for_domain, document_tools_for_domain, verify_counterparty_tool
+from agents.tools import (
+    company_context_tool_for_domain,
+    document_tools_for_domain,
+    verify_counterparty_tool,
+)
 from agents.tracing import agent_run_config
 from app.document_sections import filter_text_for_domain
 from app.knowledge import retrieve_domain_context

@@ -107,13 +107,20 @@ def _interpret(company_name: str, results: list[dict]) -> dict:
 async def _fetch_from_opensanctions(company_name: str) -> dict:
     api_key = os.environ.get("OPENSANCTIONS_API_KEY")
     if not api_key:
-        return _unavailable(company_name, "Counterparty verification is not configured (no OPENSANCTIONS_API_KEY).")
+        return _unavailable(
+            company_name,
+            "Counterparty verification is not configured (no OPENSANCTIONS_API_KEY).",
+        )
 
     # /match (not /search) - the scored entity-matching endpoint OpenSanctions
     # documents for automated screening. /search is free-text and returns no
     # `score` at all, which made an early version of this silently unable to
     # rank/threshold results.
-    body = {"queries": {"q": {"schema": "LegalEntity", "properties": {"name": [company_name]}}}}
+    body = {
+        "queries": {
+            "q": {"schema": "LegalEntity", "properties": {"name": [company_name]}}
+        }
+    }
     try:
         resp = await _http().post(
             _API_URL,
@@ -123,8 +130,13 @@ async def _fetch_from_opensanctions(company_name: str) -> dict:
         resp.raise_for_status()
         data = resp.json()
     except Exception:
-        logger.warning("OpenSanctions lookup failed for %r", company_name, exc_info=True)
-        return _unavailable(company_name, "Counterparty watchlist lookup failed - proceeding without verification.")
+        logger.warning(
+            "OpenSanctions lookup failed for %r", company_name, exc_info=True
+        )
+        return _unavailable(
+            company_name,
+            "Counterparty watchlist lookup failed - proceeding without verification.",
+        )
 
     results = (data.get("responses") or {}).get("q", {}).get("results") or []
     return _interpret(company_name, results)
@@ -144,7 +156,9 @@ async def verify_counterparty(company_name: str) -> dict:
     try:
         cached = await db.get_counterparty_lookup(normalized)
     except Exception:
-        logger.warning("Counterparty cache read failed for %r", company_name, exc_info=True)
+        logger.warning(
+            "Counterparty cache read failed for %r", company_name, exc_info=True
+        )
         cached = None
     if cached is not None:
         return cached
@@ -157,8 +171,12 @@ async def verify_counterparty(company_name: str) -> dict:
     # failure for the full TTL.
     if result["status"] != "unavailable":
         try:
-            await db.save_counterparty_lookup(normalized, "opensanctions", result, ttl_days=_CACHE_TTL_DAYS)
+            await db.save_counterparty_lookup(
+                normalized, "opensanctions", result, ttl_days=_CACHE_TTL_DAYS
+            )
         except Exception:
-            logger.warning("Counterparty cache write failed for %r", company_name, exc_info=True)
+            logger.warning(
+                "Counterparty cache write failed for %r", company_name, exc_info=True
+            )
 
     return result
