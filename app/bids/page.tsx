@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import AppShell from '@/components/AppShell';
+import { useAuth } from '@/lib/auth';
 
 interface Bid {
   id: string;
@@ -15,6 +16,7 @@ interface Bid {
 }
 
 export default function BidsPage() {
+  const { token } = useAuth();
   const [bids, setBids] = useState<Bid[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +25,9 @@ export default function BidsPage() {
   useEffect(() => {
     const fetchBids = async () => {
       try {
-        const response = await fetch('/api/bids?limit=50');
+        const response = await fetch('/api/bids?limit=50', {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
         if (!response.ok) throw new Error('Failed to fetch bids');
         const data = await response.json();
         setBids(data.bids || []);
@@ -35,7 +39,7 @@ export default function BidsPage() {
     };
 
     fetchBids();
-  }, []);
+  }, [token]);
 
   const handleDelete = async (bid: Bid) => {
     if (
@@ -48,7 +52,10 @@ export default function BidsPage() {
 
     setDeletingId(bid.id);
     try {
-      const response = await fetch(`/api/bid/${bid.id}`, { method: 'DELETE' });
+      const response = await fetch(`/api/bid/${bid.id}`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       if (!response.ok) throw new Error('Failed to delete bid');
       setBids((prev) => prev.filter((b) => b.id !== bid.id));
     } catch (err) {
