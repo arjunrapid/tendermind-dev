@@ -17,11 +17,15 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const correlationId = request.headers.get('x-request-id') || crypto.randomUUID();
+    const authHeader = request.headers.get('authorization') || '';
 
     const response = await fetch(`${PYTHON_BACKEND_URL}/api/upload`, {
       method: 'POST',
       body: formData,
-      headers: { 'X-Request-ID': correlationId },
+      headers: {
+        'X-Request-ID': correlationId,
+        ...(authHeader ? { Authorization: authHeader } : {}),
+      },
     });
 
     const data = await response.json();
