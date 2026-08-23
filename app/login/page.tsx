@@ -5,11 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useTheme } from '@/lib/theme';
 
-const SAMPLE_ACCOUNTS = [
-  { username: 'tmadmin', password: 'tmadmin123', label: 'Admin - sees the Admin section' },
-  { username: 'tmanalyst', password: 'tmanalyst123', label: 'Analyst - Admin section hidden' },
-];
-
 export default function LoginPage() {
   const router = useRouter();
   const { user, isLoading, login } = useAuth();
@@ -17,25 +12,23 @@ export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!isLoading && user) router.replace('/');
   }, [isLoading, user, router]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (login(username, password)) {
+    setIsSubmitting(true);
+    const result = await login(username, password);
+    setIsSubmitting(false);
+    if (result.ok) {
       router.replace('/');
     } else {
-      setError('Invalid username or password.');
+      setError(result.error || 'Invalid username or password.');
     }
-  };
-
-  const fillSample = (account: (typeof SAMPLE_ACCOUNTS)[number]) => {
-    setUsername(account.username);
-    setPassword(account.password);
-    setError(null);
   };
 
   return (
@@ -88,32 +81,12 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
+            disabled={isSubmitting}
+            className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Sign in
+            {isSubmitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-
-        <div className="mt-6 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
-            Sample accounts (demo only)
-          </p>
-          <div className="space-y-2">
-            {SAMPLE_ACCOUNTS.map((account) => (
-              <button
-                key={account.username}
-                type="button"
-                onClick={() => fillSample(account)}
-                className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                <p className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">
-                  {account.username} / {account.password}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{account.label}</p>
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </main>
   );

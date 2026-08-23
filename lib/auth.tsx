@@ -5,64 +5,97 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 export type Role = 'admin' | 'analyst';
 
 export interface AuthUser {
+  id: string;
   username: string;
   name: string;
   role: Role;
 }
 
-/** Sample/demo accounts only - credentials and session are plain
- * client-side localStorage, not a real auth system. Good enough to
- * demonstrate role-gated UI (tmadmin sees Admin, tmanalyst doesn't); not
- * meant to guard anything sensitive - the API routes behind these pages
- * enforce no server-side authorization of their own. */
-const SAMPLE_USERS: Record<string, { password: string; name: string; role: Role }> = {
-  tmadmin: { password: 'tmadmin123', name: 'Tender Admin', role: 'admin' },
-  tmanalyst: { password: 'tmanalyst123', name: 'Tender Analyst', role: 'analyst' },
-};
-
-const STORAGE_KEY = 'tendermind_user';
+const STORAGE_KEY = 'tendermind_token';
 
 interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
-  login: (username: string, password: string) => boolean;
+  login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => void;
+  /** Raw JWT token for forwarding to backend API calls from the client. */
+  token: string | null;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  /** Restore session from stored token by calling /api/auth/me. */
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) setUser(JSON.parse(stored));
-    } catch {
-      // Corrupt/blocked storage just means "not logged in".
-    } finally {
+    const stored = (() => {
+      try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
+    })();
+
+    if (!stored) {
       setIsLoading(false);
+      return;
     }
+
+    fetch('/api/auth/me', {
+      headers: { Authorization: 'Bearer ' + stored },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: AuthUser | null) => {
+        if (data) {
+          setToken(stored);
+          setUser(data);
+        } else {
+          // Token expired or invalid — clear it.
+          try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+        }
+      })
+      .catch(() => {
+        // Network error (backend down) — keep token so we can retry later
+        // but don't mark the user as authenticated.
+      })
+      .finally(() => setIsLoading(false));
   }, []);
 
-  const login = (username: string, password: string): boolean => {
-    const account = SAMPLE_USERS[username.trim().toLowerCase()];
-    if (!account || account.password !== password) return false;
+  const login = async (
+    username: string,
+    password: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: username.trim().toLowerCase(), password }),
+      });
 
-    const nextUser: AuthUser = { username: username.trim().toLowerCase(), name: account.name, role: account.role };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextUser));
-    setUser(nextUser);
-    return true;
+      const data = await res.json();
+
+      if (!res.ok) {
+        return { ok: false, error: data.error || 'Invalid username or password' };
+      }
+
+      const { access_token, user: serverUser } = data as { access_token: string; user: AuthUser };
+
+      try { localStorage.setItem(STORAGE_KEY, access_token); } catch { /* ignore */ }
+      setToken(access_token);
+      setUser(serverUser);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Unable to reach the server. Is the Python backend running?' };
+    }
   };
 
   const logout = () => {
-    localStorage.removeItem(STORAGE_KEY);
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    setToken(null);
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, token }}>
       {children}
     </AuthContext.Provider>
   );

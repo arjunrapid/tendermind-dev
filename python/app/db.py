@@ -145,6 +145,57 @@ async def _initialize_schema() -> None:
         await conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_company_context_category ON company_context(category);"
         )
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                name TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'analyst',
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            """
+        )
+        await _seed_default_users(conn)
+
+
+async def _seed_default_users(conn: asyncpg.Connection) -> None:
+    """Seed the two demo accounts on first startup if they don't exist yet.
+    Passwords are read from environment variables so they are never hardcoded.
+    Falls back to the old demo values when the env vars are absent so the
+    development experience is unchanged without any .env setup."""
+    from app.auth import hash_password
+
+    admin_password = os.environ.get("AUTH_ADMIN_PASSWORD", "tmadmin123")
+    analyst_password = os.environ.get("AUTH_ANALYST_PASSWORD", "tmanalyst123")
+
+    defaults = [
+        ("tmadmin", admin_password, "Tender Admin", "admin"),
+        ("tmanalyst", analyst_password, "Tender Analyst", "analyst"),
+    ]
+    for username, password, name, role in defaults:
+        existing = await conn.fetchrow("SELECT id FROM users WHERE username = $1;", username)
+        if not existing:
+            await conn.execute(
+                "INSERT INTO users (username, password_hash, name, role) VALUES ($1, $2, $3, $4);",
+                username,
+                hash_password(password),
+                name,
+                role,
+            )
+
+
+async def get_user_by_username(username: str) -> dict[str, Any] | None:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT * FROM users WHERE username = $1;", username)
+    if not row:
+        return None
+    d = dict(row)
+    d["id"] = str(d["id"])
+    d["created_at"] = d["created_at"].isoformat() if d.get("created_at") else None
+    return d
 
 
 def _row_to_dict(row: asyncpg.Record) -> dict[str, Any]:
@@ -263,11 +314,20 @@ async def save_knowledge_chunks(chunks: list[dict[str, Any]]) -> None:
 
 
 async def query_similar_chunks(
-    embedding: list[float], domain: str, k: int = 5, exclude_bid_id: str | None = None
+    embedding: list[float],
+    domain: str,
+    k: int = 5,
+    exclude_bid_id: str | None = None,
+    min_similarity: float = 0.0,
 ) -> list[dict[str, Any]]:
     """Top-K most similar past chunks for a single domain (cosine distance
-    via pgvector's `<=>` operator), so the legal agent only ever sees
-    `domain='legal'` history, engineering only `domain='engineering'`, etc."""
+    via pgvector's `<=>` operator), filtered to ``min_similarity`` so
+    low-relevance results don't pollute the agent's context.
+
+    Retrieves up to ``k * 2`` rows from Postgres before filtering and
+    deduplicating so the caller reliably gets up to ``k`` high-quality
+    chunks after the similarity threshold is applied.
+    """
     pool = _get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -281,15 +341,26 @@ async def query_similar_chunks(
             embedding,
             domain,
             exclude_bid_id,
-            k,
+            k * 2,  # over-fetch so we still have k after threshold filtering
         )
     results = []
+    seen_texts: set[str] = set()
     for row in rows:
         d = dict(row)
         if isinstance(d.get("metadata"), str):
             d["metadata"] = json.loads(d["metadata"])
         d["bid_id"] = str(d["bid_id"])
+        # Apply similarity threshold
+        if d.get("similarity", 0) < min_similarity:
+            continue
+        # Deduplicate near-identical chunk text (first 200 chars fingerprint)
+        fingerprint = d["chunk_text"][:200].strip()
+        if fingerprint in seen_texts:
+            continue
+        seen_texts.add(fingerprint)
         results.append(d)
+        if len(results) >= k:
+            break
     return results
 
 
