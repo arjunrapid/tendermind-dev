@@ -28,7 +28,10 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt ruff mypy types-bcrypt
+        # No types-bcrypt stub package exists on PyPI (bcrypt ships its own
+        # inline types), so requesting it made this step fail before any
+        # linting ran.
+        run: pip install -r requirements.txt ruff mypy
 
       - name: Ruff lint
         run: ruff check .

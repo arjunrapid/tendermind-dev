@@ -37,7 +37,16 @@ if not os.environ.get("SSL_CERT_FILE"):
 
 from agents.tracing import configure_tracing, tracing_enabled
 from app import db
-from app.routers import admin_boq, admin_models, analyze, auth, bid_detail, bids, company_context, upload
+from app.routers import (
+    admin_boq,
+    admin_models,
+    analyze,
+    auth,
+    bid_detail,
+    bids,
+    company_context,
+    upload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +121,7 @@ async def correlation_id_middleware(request: Request, call_next):
     request.state.correlation_id = correlation_id
     try:
         response = await call_next(request)
-    except Exception as exc:
+    except Exception:
         logger.exception("Unhandled error [correlation_id=%s]", correlation_id)
         return JSONResponse(status_code=500, content={"detail": "Internal server error"}, headers={"X-Request-ID": correlation_id})
     response.headers["X-Request-ID"] = correlation_id
