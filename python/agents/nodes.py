@@ -42,7 +42,7 @@ DEFAULT_PROVIDER = os.environ.get("DEFAULT_LLM_PROVIDER", "anthropic")
 
 
 def _model_for(provider: str | None, model: str | None):
-    return get_model(provider or DEFAULT_PROVIDER, model, temperature=0.7, max_tokens=4096)
+    return get_model(provider or DEFAULT_PROVIDER, model, temperature=0.7, max_tokens=2048)
 
 
 async def _inject_knowledge(system_prompt: str, domain: str, document_text: str | None, bid_id: str) -> str:

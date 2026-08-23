@@ -27,6 +27,14 @@ from fastapi.responses import JSONResponse
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
+if not os.environ.get("SSL_CERT_FILE"):
+    try:
+        import certifi
+
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+    except ImportError:
+        pass
+
 from agents.tracing import configure_tracing, tracing_enabled
 from app import db
 from app.routers import admin_boq, admin_models, analyze, auth, bid_detail, bids, company_context, upload

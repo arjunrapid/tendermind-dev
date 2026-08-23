@@ -82,7 +82,7 @@ async def route_document_content(
 
     resolved_provider = provider or DEFAULT_PROVIDER
     try:
-        chat_model = get_model(resolved_provider, model, temperature=0.0, max_tokens=8192)
+        chat_model = get_model(resolved_provider, model, temperature=0.0, max_tokens=2048)
         response = await chat_model.ainvoke(
             [
                 SystemMessage(content=_ORCHESTRATOR_SYSTEM_PROMPT),
