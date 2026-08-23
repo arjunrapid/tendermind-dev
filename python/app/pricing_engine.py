@@ -102,7 +102,7 @@ def calculate_pricing(inputs: dict[str, Any]) -> dict[str, Any]:
 
 def _extract_contract_value(text: str, assumptions_used: list[str]) -> float:
     million_match = re.search(
-        r"(?:contract|project)\s*value[:\s]*(?:USD|US\$|\$)?\s*([\d,]+(?:\.\d+)?)\s*million",
+        r"(?:contract|project)\s*value[:\s]*(?:USD|US\$|\$)?\s*(\d[\d,]*(?:\.\d+)?)\s*million",
         text,
         re.IGNORECASE,
     )
@@ -110,7 +110,7 @@ def _extract_contract_value(text: str, assumptions_used: list[str]) -> float:
         return float(million_match.group(1).replace(",", "")) * 1_000_000
 
     exact_match = re.search(
-        r"(?:contract|project)\s*value[:\s]*(?:USD|US\$|\$)?\s*([\d,]+(?:\.\d+)?)", text, re.IGNORECASE
+        r"(?:contract|project)\s*value[:\s]*(?:USD|US\$|\$)?\s*(\d[\d,]*(?:\.\d+)?)", text, re.IGNORECASE
     )
     if exact_match:
         return float(exact_match.group(1).replace(",", ""))

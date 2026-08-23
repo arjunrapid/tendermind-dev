@@ -52,7 +52,7 @@ def _model_for(provider: str | None, model: str | None, agent: str):
         from models.mock import mock_model_for
 
         return mock_model_for(agent)
-    return get_model(resolved, model, temperature=0.7, max_tokens=4096)
+    return get_model(resolved, model, temperature=0.7, max_tokens=2048)
 
 
 async def _inject_knowledge(system_prompt: str, domain: str, document_text: str | None, bid_id: str) -> str:
