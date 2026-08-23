@@ -23,23 +23,40 @@ LangChain "deep agents" run over LangGraph, instead of hand-rolled
   (ported from each TS agent's bespoke copy of the same logic).
 - `agents/tools.py` - **reusable document-extraction tool**. `extract_document_text`
   is a LangChain tool wrapping the deterministic `app/pdf_extract.py` extractor
-  (`pypdf`) plus a small on-disk `DocumentStore`. Every domain agent is handed
-  this tool (see `agents/nodes.py`'s `tools=DOCUMENT_TOOLS`) so extraction is
-  never something the LLM does itself - it calls the tool, gets back exactly
-  what `pypdf` extracted, and reasons over that. `POST /api/upload` stores the
+  (`pypdf`) plus a small on-disk `DocumentStore`, so extraction is never
+  something the LLM does itself - it calls the tool, gets back exactly what
+  `pypdf` extracted, and reasons over that. `POST /api/upload` stores the
   uploaded bytes and returns a `documentId`; passing that through to
   `/api/analyze` makes agents call the tool instead of having text pasted into
   their prompt (see `agents/prompts.py`'s `tool_user_message_for`).
+
+  Tool wiring is decided per agent by `agents/nodes.py`'s `_tools_for(agent,
+  routed_text)`, not a fixed list: `extract_document_text` is offered **only**
+  when the agent has no routed text already in its prompt (offering it anyway
+  led models to call it with hallucinated document ids and fail the run), while
+  `get_company_context` is always offered. Both are domain-scoped, so an agent
+  only ever sees its own slice.
+
+- `agents/orchestrator.py` - **document-routing orchestrator**. Runs once per
+  bid, before the three domain agents. An LLM reads the whole document and
+  splits it into three verbatim per-domain excerpts, so each downstream agent
+  receives only content relevant to its specialty. Routing is judgment-based
+  rather than keyword-based, so a clause like "the contractor shall bear all
+  costs arising from delay" lands in legal even though no keyword list would
+  predict it. Falls back to `app/document_sections.py`'s keyword filter if the
+  call or JSON parse fails.
 - `agents/nodes.py` - `legal_agent`, `engineering_agent`, `accounting_agent`:
   each builds its model via the factory, calls `run_deep_agent`, parses the
   reply. All async.
 - `agents/risk.py` - `risk_agent`: the deterministic risk-scoring/bid-decision
   aggregator, ported from `risk-agent.ts`. Not an LLM call - a pure function
   of the other three agents' outputs.
-- `graph/pipeline.py` - the LangGraph `StateGraph`: `START` fans out to
-  `legal`/`engineering`/`accounting` in the same superstep (real concurrent
-  execution, not sequential awaits), then `risk` joins on all three before
-  running.
+- `graph/pipeline.py` - the LangGraph `StateGraph`: `START` → `orchestrator`
+  (runs first and alone), which then fans out to `legal`/`engineering`/
+  `accounting` in the same superstep (real concurrent execution, not sequential
+  awaits), then `risk` joins on all three before running. `_resolve_model`
+  picks each node's provider/model - per-agent override first, then the
+  request-level provider/model, then `DEFAULT_LLM_PROVIDER`.
 - `agents/tracing.py` - **LangSmith tracing setup**. `configure_tracing()` (called
   once at startup) logs whether tracing is on and warns if `LANGCHAIN_TRACING_V2=true`
   is set without an API key. `agent_run_config(agent, bid_id, doc_type, ...)`
@@ -50,7 +67,7 @@ LangChain "deep agents" run over LangGraph, instead of hand-rolled
 
 ## Tracking what agents receive (LangSmith)
 
-Set these in `python/.env` (see `.env.example`):
+Set these in `python/.env` (create it by hand - no `.env.example` is committed):
 
 ```
 LANGCHAIN_TRACING_V2=true
@@ -76,7 +93,8 @@ nothing else changes.
 
 ## FastAPI service (`app/`)
 
-This replaces every route under `app/api/*` in the Next.js app, 1:1:
+This covers every route under `app/api/*` in the Next.js app, plus three that
+have no TypeScript equivalent:
 
 | Next.js route | FastAPI router | Endpoint |
 |---|---|---|
@@ -85,9 +103,13 @@ This replaces every route under `app/api/*` in the Next.js app, 1:1:
 | `app/api/bids/route.ts` | `app/routers/bids.py` | `GET /api/bids` |
 | `app/api/bid/[id]/route.ts` | `app/routers/bid_detail.py` | `GET`/`DELETE /api/bid/{id}` |
 | `app/api/admin/boq/route.ts` | `app/routers/admin_boq.py` | `GET`/`POST /api/admin/boq` |
+| _(new, no TS equivalent)_ | `app/routers/admin_models.py` | `GET`/`POST /api/admin/models` |
+| _(new, no TS equivalent)_ | `app/routers/company_context.py` | `GET`/`POST /api/company-context`, `DELETE /api/company-context/{id}` |
+| _(new, no TS equivalent)_ | `app/main.py` | `GET /api/health` |
 
 `/api/analyze` is the one that matters: it calls `graph.pipeline.run_pipeline(...)`
-(legal/engineering/accounting run concurrently, risk joins after), then applies
+(orchestrator first, then legal/engineering/accounting concurrently, risk joins
+after), then applies
 the same deterministic pricing/BOQ/bid-strategy math as the TS route and
 persists to the same Postgres `bids`/`boq_defaults` tables (`app/db.py`, via
 `asyncpg` against `DATABASE_URL`). Supporting modules ported alongside it:
@@ -99,8 +121,20 @@ persists to the same Postgres `bids`/`boq_defaults` tables (`app/db.py`, via
 - `app/memory.py` - file-based agent memory (`lib/memory/manager.ts` + `injector.ts`),
   reading/writing the **same** `memory/agents/*.json` files as the TS app, and
   now wired into `agents/nodes.py` so each LLM agent injects prior learnings
-  into its prompt and saves new ones after each run
+  into its prompt and saves new ones after each run. Note each agent applies
+  **two** context layers in order: `inject_memory_context()` first, then
+  `_inject_knowledge()` for pgvector retrieval.
 - `app/db.py` - `bids`/`extracted_clauses`/`boq_defaults` tables, same schema
+- `app/knowledge.py` - **pgvector company knowledge**. Embeds each completed
+  assessment and indexes it; `retrieve_domain_context()` pulls the most similar
+  chunks from *other* bids into an agent's system prompt, filtered by domain at
+  the query level so no other agent's domain can leak in. No TS equivalent.
+- `app/embeddings.py` - embedding calls behind `knowledge.py`
+  (`OPENAI_EMBEDDING_MODEL` / `OPENROUTER_EMBEDDING_MODEL`)
+- `app/company_context.py` - curated policies/standards an admin uploads via the
+  Company Context page, surfaced to agents through the `get_company_context` tool
+- `app/document_sections.py` - keyword-based per-domain filter; the
+  orchestrator's fallback path
 
 ## Setup
 
@@ -108,12 +142,13 @@ persists to the same Postgres `bids`/`boq_defaults` tables (`app/db.py`, via
 cd python
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # fill in the API key(s)/DATABASE_URL you'll use
 ```
 
-`.env` needs `DATABASE_URL` (same Postgres the Next.js app uses - copy it out
-of the repo root's `.env.local`) in addition to whichever provider API key(s)
-you're using.
+Then create `python/.env` by hand - **no `.env.example` is committed** (`.env*`
+is gitignored repo-wide). It needs `DATABASE_URL` (same Postgres the Next.js app
+uses - copy it out of the repo root's `.env.local`; the `pgvector` extension must
+be enabled) plus whichever provider API key(s) you're using, and optionally
+`DEFAULT_LLM_PROVIDER` (defaults to `anthropic`).
 
 ## Run the API
 
@@ -121,10 +156,15 @@ you're using.
 uvicorn app.main:app --reload --port 8000
 ```
 
-Swagger UI at `http://localhost:8000/docs`. Point the frontend's fetch calls
-at this instead of the Next.js API routes (or proxy `/api/*` to it) once
-you're ready to cut over; the Next.js routes under `app/api/*` haven't been
-deleted so both can run side by side during migration.
+Swagger UI at `http://localhost:8000/docs`; liveness and tracing status at
+`http://localhost:8000/api/health`.
+
+**Cutover is partially done.** Three Next.js routes now proxy here rather than
+running their own logic - `/api/analyze`, `/api/admin/models`, and
+`/api/company-context` (via `PYTHON_BACKEND_URL`, default
+`http://localhost:8000`). The rest - `upload`, `bids`, `bid/[id]`, `admin/boq` -
+still run natively in TypeScript. Request/response shapes are identical on both
+sides, so the proxies need no translation layer.
 
 ## Run the pipeline standalone (no server)
 
@@ -134,22 +174,25 @@ python run_analysis.py ../sample-tenders/tender-caution.txt --doc-type CONTRACT 
 
 ## Picking providers per agent
 
-`run_pipeline(..., provider=..., model=...)` currently applies one
-provider/model pair to all three agents per run (simplest wiring for the
-default case). To run each agent on a **different** provider, pass explicit
-`provider=`/`model=` into `legal_agent(...)` / `engineering_agent(...)` /
-`accounting_agent(...)` directly in `graph/pipeline.py`'s node functions - the
-factory and the deep-agent runner already support it per-call; only the
-pipeline's current single-provider convenience wrapper doesn't expose it yet.
+Per-agent provider selection is wired up. `run_pipeline(..., provider=...,
+model=..., agent_overrides={...})` resolves each node's model through
+`_resolve_model` in this order:
+
+1. an explicit per-agent override (`agent_overrides`, persisted and edited via
+   `GET`/`POST /api/admin/models` and the `/admin/models` page)
+2. the request-level `provider=`/`model=` pair
+3. `DEFAULT_LLM_PROVIDER` (defaults to `anthropic`)
+
+So running the legal agent on Claude and the engineering agent on Gemini in the
+same analysis is a settings change, not a code change.
 
 ## Scope / what's NOT (yet) ported
 
 - **Citation validation** (`lib/citation-tracker.ts`) - the TS agents check
-  citation coverage and log warnings on missing `[page:N]` tags. Not ported;
-  the parsed assessments still carry citations inline in their text, just
-  unvalidated.
-- **Frontend** - `app/`, `components/` (the Next.js pages) are unchanged and
-  still call the old `/api/*` routes. Point them at this service (env var
-  base URL, or a reverse-proxy rule) to actually cut over.
-
-Ask for either of the above to be wired in next.
+  citation coverage and log warnings on missing `[page:N]` tags. Still not
+  ported; the parsed assessments carry citations inline in their text, but
+  nothing verifies coverage. Python has only `strip_citation()` /
+  `_strip_citations()` display helpers. This is the largest remaining behaviour
+  gap between the two pipelines.
+- **Remaining routes** - `upload`, `bids`, `bid/[id]`, and `admin/boq` still run
+  natively in TypeScript. Either finish porting them or decide they stay.

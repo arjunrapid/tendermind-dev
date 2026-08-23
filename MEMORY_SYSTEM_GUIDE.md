@@ -1,5 +1,13 @@
 # Agent Memory System Guide
 
+> **Scope**: this guide documents the TypeScript implementation (`lib/memory/`),
+> but the store itself is **shared by both pipelines**. `python/app/memory.py` is
+> a port of `manager.ts` + `injector.ts` that reads and writes the same repo-root
+> `memory/agents/*.json` files, and the live Python agents call it on every run.
+> Python additionally layers pgvector company-knowledge retrieval
+> (`python/app/knowledge.py`) on top of it. See
+> [AGENTS_COMPLETE_GUIDE.md](./AGENTS_COMPLETE_GUIDE.md).
+
 ## Overview
 
 The Agent Memory System persists learnings from previous tender analyses and automatically injects relevant context into agent prompts. This improves agent performance over time without requiring manual configuration.
@@ -57,10 +65,10 @@ Each memory file contains:
     "source_document": "CONTRACT",
     "confidence": 0.85,
     "tags": ["legal", "LD", "risk"],
-    "created_at": "2024-08-22T10:30:00Z",
-    "updated_at": "2024-08-22T10:30:00Z",
+    "created_at": "2026-08-22T10:30:00Z",
+    "updated_at": "2026-08-22T10:30:00Z",
     "usage_count": 3,
-    "last_used": "2024-08-22T11:45:00Z"
+    "last_used": "2026-08-22T11:45:00Z"
   }
 }
 ```
@@ -230,10 +238,9 @@ ${memoryContext.context_text}`;
     user_message: `Analyze this ${docType}:\n\n${documentText}`,
   });
 
-  // Record usage and save new learnings
-  for (const memory of memoryContext.memories.slice(0, 2)) {
-    await manager.recordMemoryUsage(memory.id);
-  }
+  // NOTE: getMemoryContext() already calls recordMemoryUsage() on every
+  // memory it returns (injector.ts:30). Calling it again here double-counts.
+  // Shown only to illustrate the manual API.
 
   await injector.extractAndSaveMemory(
     'engineering',
@@ -279,10 +286,25 @@ await manager.deleteMemory('mem_1692720485_abc123def');
 // Export all memories
 const allMemories = await manager.exportMemories();
 
-// Get statistics
+// Get statistics (synchronous)
 const stats = manager.getMemoryStats();
-// Returns: { total: 45, byAgent: { legal: 12, engineering: 18, ... }, ... }
+// Returns: { total: number, byAgent: Record<string, number>, byType: Record<string, number> }
+
+// Save a memory directly
+await manager.saveMemory(memory);
+
+// Import memories in bulk
+await manager.importMemories(memories);
+
+// Delete every memory sourced from one bid; returns the count deleted
+const deleted = await manager.deleteMemoriesForBid('bid_12345');
+
+// Explicit initialization (all other methods call this internally)
+await manager.initialize();
 ```
+
+`exportMemories(agent?)` takes an optional agent filter:
+`await manager.exportMemories('legal')`.
 
 ### MemoryInjector API
 
@@ -431,6 +453,7 @@ async function agentName(documentText: string, bidId: string, docType: string) {
   const enrichedPrompt = await injector.injectMemoryContext(
     AGENT_SYSTEM_PROMPT,
     'agent_name',  // 'legal' | 'engineering' | 'accounting' | 'risk'
+                   // (AgentMemory.agent also allows 'general')
     documentText
   );
 
@@ -495,10 +518,14 @@ for (const m of oldMemories) {
 ## Next Steps
 
 1. ✅ Memory system implemented
-2. 🔄 Integrate into agents (Phase 2)
-3. 🔄 Monitor memory quality
-4. 🔄 Export/archive old memories
-5. 🔄 Refine extraction logic based on usage
+2. ✅ Integrated into the TypeScript agents (`legal-agent.ts`,
+   `engineering-agent.ts`, `accounting-agent.ts` all call
+   `injectMemoryContext()` then `extractAndSaveMemory()`)
+3. 🔄 Keep the two ports in sync — `lib/memory/` and `python/app/memory.py`
+   read the same files, so a format change in one must land in the other
+4. 🔄 Monitor memory quality
+5. 🔄 Export/archive old memories
+6. 🔄 Refine extraction logic based on usage
 
 ---
 

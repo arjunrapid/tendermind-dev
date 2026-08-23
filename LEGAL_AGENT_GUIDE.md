@@ -1,10 +1,17 @@
 # Legal Agent Implementation Guide
 
+> **Scope**: this guide documents the **TypeScript** legal agent
+> (`lib/agents/legal-agent.ts`). That agent is the *legacy* implementation —
+> `/api/analyze` now proxies to the Python/LangGraph pipeline, whose legal agent
+> lives in `python/agents/nodes.py` and `python/agents/prompts.py`. The two share
+> the same system prompt content and output shape, but only the Python one runs
+> in the app. See [AGENTS_COMPLETE_GUIDE.md](./AGENTS_COMPLETE_GUIDE.md).
+
 ## Overview
 
-The **Legal Agent** is now fully implemented and integrated into Tendermind. It analyzes construction contracts and related documents for legal compliance, risk, and obligations.
+The **Legal Agent** analyzes construction contracts and related documents for legal compliance, risk, and obligations.
 
-**Status**: ✅ **Ready for Production**
+**Status**: ✅ Implemented and tested (TypeScript path)
 
 ---
 
@@ -50,20 +57,33 @@ Provides a go/no-go recommendation:
 ```
 lib/agents/legal-agent.ts          ← Main agent implementation
   ├── legalAgent()                 ← Entry point function
-  ├── parseAssessment()            ← Parse LLM response
+  ├── parseAssessment()            ← Parse LLM response (JSON, text fallback)
+  ├── parseArray()                 ← Coerce parsed values to string[]
+  ├── extractBulletPoints()        ← Text-mode section extraction
+  ├── extractAssessmentLine()      ← Pull the GREEN/YELLOW/RED line
   ├── extractFactsFromAssessment() ← Extract structured facts
   └── extractFactWithCitation()    ← Parse citations from text
 ```
 
-### Integration Points
+### Callers
 
 ```
-app/api/analyze/route.ts
-  └── Calls: await legalAgent(documentText, bidId, docType)
-      ├── Injects memory context (past learnings)
-      ├── Calls LLM (TokenRouter → Anthropic fallback)
-      ├── Validates citations (100% coverage)
-      └── Saves learnings to memory
+test-legal-agent.ts        → legalAgent(text, bidId, docType)
+test-reference-tender.ts   → legalAgent(...) alongside the other agents
+lib/test-utils/run-tender-scenario.ts
+```
+
+⚠️ `app/api/analyze/route.ts` does **not** call this function. It proxies to the
+Python backend, which runs its own legal agent.
+
+Internal flow when called:
+
+```
+legalAgent(documentText, bidId, docType)
+  ├── Injects memory context (past learnings)
+  ├── Calls LLM via callLLM() — OpenRouter by default, with failover
+  ├── Validates citations (logs coverage; does not throw)
+  └── Saves learnings to memory
 ```
 
 ---
@@ -115,7 +135,8 @@ if (!validation.is_compliant) {
 
 ### ⚡ Provider Failover
 
-Automatic fallback to Anthropic if TokenRouter fails:
+Automatic failover between providers. The default primary is **OpenRouter**;
+any other provider with a key set is an eligible fallback:
 
 ```typescript
 const response = await callLLM({
@@ -124,7 +145,7 @@ const response = await callLLM({
   // Provider automatically selected with fallback
 });
 
-console.log(`Used provider: ${response.provider_used}`); // tokenrouter or anthropic
+console.log(`Used provider: ${response.provider_used}`); // openrouter | tokenrouter | anthropic
 ```
 
 ### ⏱️ Timeout & Retry
@@ -132,9 +153,9 @@ console.log(`Used provider: ${response.provider_used}`); // tokenrouter or anthr
 Built-in resilience:
 ```typescript
 const response = await callLLM({
-  max_tokens: 2048,
+  max_tokens: 4096,
   temperature: 0.7,
-  timeout_ms: 30000,    // 30 second timeout
+  timeout_ms: 120000,   // 2 minute timeout
   retry_count: 2,       // Retry on failure
 });
 ```
@@ -158,12 +179,13 @@ console.log(assessment.compliance_issues);
 console.log(assessment.contract_terms);
 console.log(assessment.risks);
 console.log(assessment.overall_assessment);
-console.log(assessment.provider_used); // 'tokenrouter' or 'anthropic'
+console.log(assessment.provider_used); // 'openrouter' | 'tokenrouter' | 'anthropic'
 ```
 
 ### 2. **API Integration** (production)
 
-The `/api/analyze` endpoint automatically calls the Legal Agent:
+⚠️ `/api/analyze` returns a `legalAssessment` in the shape below, but it is
+produced by the **Python** legal agent, not by `lib/agents/legal-agent.ts`:
 
 ```bash
 curl -X POST http://localhost:3000/api/analyze \
@@ -183,7 +205,7 @@ curl -X POST http://localhost:3000/api/analyze \
     "risks": ["..."],
     "overall_assessment": "...",
     "citations_valid": true,
-    "provider_used": "tokenrouter"
+    "provider_used": "openrouter"
   }
 }
 ```
@@ -193,7 +215,7 @@ curl -X POST http://localhost:3000/api/analyze \
 Run the included test script:
 
 ```bash
-npx ts-node test-legal-agent.ts
+npx tsx test-legal-agent.ts
 ```
 
 This tests the agent with a sample contract and shows:
@@ -238,7 +260,7 @@ OVERALL ASSESSMENT:
   YELLOW: Requires negotiation on liability caps and force majeure terms [page:1]
 
 CITATIONS VALID: ✅ Yes (100% coverage)
-PROVIDER USED: tokenrouter
+PROVIDER USED: openrouter
 ```
 
 ---
@@ -248,8 +270,8 @@ PROVIDER USED: tokenrouter
 ### If LLM is unavailable:
 
 ```typescript
-// Primary (TokenRouter) fails → Falls back to Anthropic
-// Both fail → Returns error assessment with fallback data
+// Primary provider fails → Factory fails over to another configured provider
+// All fail → Returns error assessment with fallback data
 const assessment = await legalAgent(text, bidId, docType);
 
 if (assessment.provider_used === 'error') {
@@ -281,15 +303,23 @@ Set these in `.env.local`:
 
 ```bash
 # LLM Provider selection
-LLM_PROVIDER=tokenrouter    # or 'anthropic'
+LLM_PROVIDER=openrouter     # default; also 'tokenrouter' or 'anthropic'
 
-# TokenRouter (primary)
+# OpenRouter (default primary)
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_ENDPOINT=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=google/gemini-2.0-flash-001
+
+# TokenRouter
 TOKENROUTER_API_KEY=sk_...
 TOKENROUTER_ENDPOINT=https://api.tokenrouter.com/v1
 
-# Anthropic (fallback)
+# Anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+The selected `LLM_PROVIDER` must have its key set or `getLLMConfig()` throws.
+Authoritative list: `ENV_VAR_DOCS` in `lib/llm/config.ts`.
 
 ### Agent Tuning
 
@@ -301,9 +331,9 @@ const LEGAL_AGENT_SYSTEM_PROMPT = `...`
 
 // LLM parameters (in legalAgent function)
 const response = await callLLM({
-  max_tokens: 2048,        // Adjust for longer outputs
+  max_tokens: 4096,        // Adjust for longer outputs
   temperature: 0.7,        // 0.0 = deterministic, 1.0 = creative
-  timeout_ms: 30000,       // Increase for large documents
+  timeout_ms: 120000,      // Increase further for very large documents
   retry_count: 2,          // Number of retries
 });
 ```
@@ -316,7 +346,7 @@ const response = await callLLM({
 
 | Metric | Target | Actual |
 |--------|--------|--------|
-| Analysis time | < 30s | ~8-12s (TokenRouter) |
+| Analysis time | < 30s | ~8-12s (varies by provider/model) |
 | Citation coverage | 100% | ✅ Validated |
 | Provider failover | < 100ms | ~50-80ms |
 | Memory search | < 200ms | ~100-150ms |
@@ -332,16 +362,17 @@ const response = await callLLM({
 
 ## Integration with Other Agents
 
-The Legal Agent is Phase 2.1 of Tendermind. Next phases:
+All downstream components are now implemented:
 
 | Phase | Component | Status | Depends On |
 |-------|-----------|--------|-----------|
 | 2.1 | Legal Agent | ✅ Done | LLM + Memory |
-| 2.2 | Engineering Agent | ⏳ To Do | Legal Agent |
-| 2.3 | Accounting Agent | ⏳ To Do | Legal Agent |
-| 2.4 | Risk Agent | ⏳ To Do | All others |
-| 3 | Pricing Engine | ⏳ To Do | All agents |
-| 4 | Reference Testing | ⏳ To Do | All above |
+| 2.2 | Engineering Agent | ✅ Done | Legal Agent |
+| 2.3 | Accounting Agent | ✅ Done | Legal Agent |
+| 2.4 | Risk Agent | ✅ Done | All others |
+| 3 | Pricing Engine | ✅ Done | All agents |
+| 4 | Reference Testing | ✅ Done | All above |
+| 5 | Python/LangGraph port | ✅ Done | — (now the live path) |
 
 ---
 
@@ -362,16 +393,17 @@ The agent logs at each step:
 ### Check server logs:
 
 ```bash
-# If running dev server
-tail -f /tmp/dev-server.log
-
-# Or check .next/logs/ in production
+npm run dev          # TypeScript agent logs appear in this terminal
 ```
+
+The live Python agent logs to the `uvicorn` terminal instead, and traces to
+LangSmith when `LANGCHAIN_TRACING_V2=true`.
 
 ### Common issues:
 
 **Issue**: "No LLM provider configured"
-- **Fix**: Check `.env.local` has `TOKENROUTER_API_KEY` or `ANTHROPIC_API_KEY`
+- **Fix**: Check `.env.local` has a key for whichever provider `LLM_PROVIDER` names
+  (`OPENROUTER_API_KEY` by default)
 
 **Issue**: "Citations incomplete"
 - **Fix**: Agent tried but LLM didn't include citations. Retry with different temperature or prompt.
@@ -400,6 +432,9 @@ it('should analyze contract and extract terms', async () => {
 
 ### E2E test via API:
 
+Note this exercises the **Python** legal agent, not `lib/agents/legal-agent.ts`.
+The Python backend must be running on port 8000.
+
 ```bash
 curl -X POST http://localhost:3000/api/analyze \
   -H "Content-Type: application/json" \
@@ -413,14 +448,15 @@ curl -X POST http://localhost:3000/api/analyze \
 
 ## Next Steps
 
-Now that the Legal Agent is complete:
+All the agents this document once listed as upcoming are now built. What remains
+is deciding this implementation's future:
 
-1. ✅ **Legal Agent Done** - This document
-2. ⏳ **Engineering Agent** - Scope, timeline, site conditions (3-4 hours)
-3. ⏳ **Accounting Agent** - Costs, payment terms, qualifications (3-4 hours)
-4. ⏳ **Risk Agent** - Aggregation and final verdict (3-4 hours)
-5. ⏳ **Pricing Engine** - Deterministic cost calculations (6-8 hours)
-6. ⏳ **Reference Testing** - Validate with EBTSL 7187 tender (4-6 hours)
+1. ✅ Legal, Engineering, Accounting, Risk agents — all implemented
+2. ✅ Pricing engine and reference testing — implemented
+3. ✅ Python/LangGraph port — now the live path
+4. 🔄 **Decide whether `lib/agents/legal-agent.ts` stays.** It is duplicated by
+   `python/agents/nodes.py::legal_agent`. Keeping both means two prompts to
+   maintain in step.
 
 ---
 
@@ -433,6 +469,5 @@ Now that the Legal Agent is complete:
 
 ---
 
-**Last Updated**: 2024-08-22  
-**Status**: Production Ready ✅  
-**Next Review**: After Engineering Agent implementation
+**Last Updated**: 2026-08-22  
+**Status**: Implemented; superseded in production by the Python agent
